@@ -292,7 +292,13 @@ Values in between are linear. A hovered or selected settlement goes to 0.85 what
 
 **Routes.** The scan view draws either the team tour or each settlement's clinic route, never both, because together they are unreadable. A clinic route that follows roads is a solid line. A two-point route is the straight off-road fallback, and it is dashed so nobody reads it as a road. Hovering or selecting a settlement highlights its own route.
 
-**Markers.** A 4 km scan is invisible from orbit, so scan boxes and small settlements also get a dot.
+**Markers.** A 4 km scan is invisible from orbit, so scan boxes and small settlements also get a dot. On the world and country views, a scan's dot is colored by what it found:
+
+| Dot | Meaning |
+|-----|---------|
+| Orange | Settlements found, and at least one has a clinic route |
+| Blue | Settlements found, but no clinic was in range of any of them |
+| Black (thin light ring) | No settlements found |
 
 **Antimeridian.** Countries that cross 180° (Russia, Fiji) come split at −180 and 180. Rings wider than 180° have their western half shifted past 180°, so they do not draw as a band around the globe.
 

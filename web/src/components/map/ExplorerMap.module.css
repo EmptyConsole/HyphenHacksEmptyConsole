@@ -501,6 +501,22 @@ dl.details > div {
   box-shadow: 0 0 0 2px var(--color-constellation);
 }
 
+.keyScan {
+  height: 8px;
+  max-width: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.keyScan[data-status="noClinic"] {
+  background: var(--color-constellation);
+}
+
+.keyScan[data-status="empty"] {
+  background: #000;
+  box-shadow: 0 0 0 1px var(--color-text-secondary);
+}
+
 .keyTour {
   height: 0;
   border-top: 3px solid var(--color-accent);

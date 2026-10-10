@@ -266,11 +266,15 @@ function summarize(collection) {
     costUsd += f.properties.predictedCostUsd ?? f.properties.healthcareUsd ?? 0;
     if (f.properties.source === "osm") osmMatched += 1;
   }
+  // Same rule as the map: a blob with no roof cluster is not drawn as a settlement.
+  const kept = collection.features.filter((f) => f.properties.buildings !== 0);
   return {
     villages: collection.features.length,
     population,
     costUsd,
     osmMatched,
+    settlements: kept.length,
+    withClinic: kept.filter((f) => f.properties.clinic).length,
     tourVersion: collection.tour !== undefined ? TOUR_VERSION : undefined,
     tourCostUsd: collection.tour?.costUsd ?? null,
     tourStops: collection.tour?.stops ?? 0,

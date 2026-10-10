@@ -127,6 +127,18 @@ const lineOpacity: ExpressionSpecification = [
   1,
 ];
 
+const SCAN_EMPTY_COLOR = "#000000";
+const markerStatus: ExpressionSpecification = ["coalesce", ["get", "status"], ""];
+const markerColor: ExpressionSpecification = [
+  "match",
+  markerStatus,
+  "empty",
+  SCAN_EMPTY_COLOR,
+  "noClinic",
+  tokens.color.constellation,
+  tokens.color.accent,
+];
+
 /** Detected areas get a solid constellation outline; modeled ones a faint one. */
 function areaLineColor(theme: MapTheme): ExpressionSpecification {
   return [
@@ -217,6 +229,7 @@ function markerPoints(level: number, fc: AreaCollection, scans: ScanMeta[]) {
             areaId: s.countryId,
             halo: 14,
             core: 3.5,
+            status: scanStatus(s),
           },
         ),
       ),
@@ -225,12 +238,28 @@ function markerPoints(level: number, fc: AreaCollection, scans: ScanMeta[]) {
   if (level === 1 && fc.features[0]?.properties.data_source !== "detected")
     return EMPTY;
   const size = level === 1 ? { halo: 16, core: 4.5 } : {};
+  const byArea = new Map(scans.map((s) => [`scan:${s.id}`, s]));
   return featureCollection(
-    fc.features.map((f) => ({
-      ...pointOnFeature(f),
-      properties: { areaId: f.properties.id, ...size },
-    })),
+    fc.features.map((f) => {
+      const scan = level === 1 ? byArea.get(f.properties.id) : undefined;
+      return {
+        ...pointOnFeature(f),
+        properties: {
+          areaId: f.properties.id,
+          ...size,
+          ...(scan && { status: scanStatus(scan) }),
+        },
+      };
+    }),
   );
+}
+
+type ScanStatus = "empty" | "noClinic" | "reached";
+
+/** Marker color for a scan: nothing found, settlements but no clinic in range, or reachable. */
+function scanStatus(s: ScanMeta): ScanStatus {
+  if ((s.settlements ?? s.villages) === 0) return "empty";
+  return s.withClinic === 0 ? "noClinic" : "reached";
 }
 
 function sum(
@@ -419,7 +448,7 @@ export default function ExplorerMap() {
         // Larger on the world and country views, where a marker is the only sign of a ~4 km scan.
         paint: {
           "circle-radius": ["coalesce", ["get", "halo"], 9],
-          "circle-color": tokens.color.accent,
+          "circle-color": markerColor,
           "circle-opacity": 0.3,
           "circle-blur": 1,
         },
@@ -428,9 +457,12 @@ export default function ExplorerMap() {
         id: "dots-core",
         type: "circle",
         source: "dots",
+        // A black dot vanishes on the dark map, so empty scans get a thin light ring.
         paint: {
           "circle-radius": ["coalesce", ["get", "core"], 2.5],
-          "circle-color": tokens.color.accent,
+          "circle-color": markerColor,
+          "circle-stroke-color": tokens.color.textSecondary,
+          "circle-stroke-width": ["match", markerStatus, "empty", 1, 0],
         },
       });
       // Invisible, bigger target so tiny markers are easy to hover and click.
@@ -956,6 +988,19 @@ export default function ExplorerMap() {
             <li>
               <i className={styles.keyModeled} /> Modeled estimate
             </li>
+            {((level === 0 && scans.length > 0) || (level === 1 && detectedHere)) && (
+              <>
+                <li>
+                  <i className={styles.keyScan} data-status="reached" /> Scan with clinic routes
+                </li>
+                <li>
+                  <i className={styles.keyScan} data-status="noClinic" /> Settlements, no clinic in range
+                </li>
+                <li>
+                  <i className={styles.keyScan} data-status="empty" /> No settlements found
+                </li>
+              </>
+            )}
             {showTour && (
               <li>
                 <i className={styles.keyTour} /> Team tour (clinic → every stop → clinic)

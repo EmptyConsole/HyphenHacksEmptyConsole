@@ -145,6 +145,10 @@ export interface ScanMeta {
   population: number;
   costUsd: number;
   osmMatched: number;
+  /** Settlements the map draws (at least one roof cluster). Backfilled by listScans for older scans. */
+  settlements?: number;
+  /** Settlements whose route starts at a clinic. 0 means no clinic was in range. */
+  withClinic?: number;
 }
 
 /** Totals over every saved scan's meta. */

@@ -13,6 +13,39 @@ const DETECTOR = path.join(process.cwd(), "..", "detect-villages.js");
 const RUN_TIMEOUT_MS = 8 * 60 * 1000;
 const ID_PATTERN = /^[0-9a-z-]+$/;
 
+type DetectedFeature = {
+  properties: {
+    population?: number;
+    predictedCostUsd?: number;
+    healthcareUsd?: number;
+    source?: string;
+    buildings?: number;
+    clinic?: unknown;
+  };
+};
+
+/** Same rule as hestiaProvider: a blob with no roof cluster is not drawn as a settlement. */
+function settlementCounts(features: DetectedFeature[]) {
+  const kept = features.filter((f) => f.properties.buildings !== 0);
+  return { settlements: kept.length, withClinic: kept.filter((f) => f.properties.clinic).length };
+}
+
+/** Counts for meta files written before `settlements` existed, keyed by id and write time. */
+const countsCache = new Map<string, ReturnType<typeof settlementCounts>>();
+
+async function withCounts(meta: ScanMeta): Promise<ScanMeta> {
+  if (meta.settlements !== undefined && meta.withClinic !== undefined) return meta;
+  const key = `${meta.id}@${meta.updatedAt ?? meta.createdAt}`;
+  let counts = countsCache.get(key);
+  if (!counts) {
+    const text = await readScan(meta.id);
+    if (!text) return meta;
+    counts = settlementCounts((JSON.parse(text) as { features: DetectedFeature[] }).features);
+    countsCache.set(key, counts);
+  }
+  return { ...meta, ...counts };
+}
+
 export async function listScans(): Promise<ScanMeta[]> {
   let files: string[];
   try {
@@ -23,7 +56,7 @@ export async function listScans(): Promise<ScanMeta[]> {
   const metas = await Promise.all(
     files
       .filter((f) => f.endsWith(".meta.json"))
-      .map(async (f) => JSON.parse(await readFile(path.join(SCANS_DIR, f), "utf8")) as ScanMeta),
+      .map(async (f) => withCounts(JSON.parse(await readFile(path.join(SCANS_DIR, f), "utf8")) as ScanMeta)),
   );
   return metas.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
@@ -76,7 +109,7 @@ async function writeAtomic(file: string, text: string) {
 export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
   const collection = JSON.parse(await runDetector(request)) as {
     tour?: { costUsd: number; stops: number } | null;
-    features: { properties: { population?: number; predictedCostUsd?: number; healthcareUsd?: number; source?: string } }[];
+    features: DetectedFeature[];
   };
   let population = 0;
   let costUsd = 0;
@@ -102,6 +135,7 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
     population,
     costUsd,
     osmMatched,
+    ...settlementCounts(collection.features),
     // Matches TOUR_VERSION in scan-batch.js.
     tourVersion: collection.tour !== undefined ? 2 : undefined,
     tourCostUsd: collection.tour?.costUsd ?? null,
