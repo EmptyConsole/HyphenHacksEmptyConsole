@@ -146,6 +146,16 @@ const lineOpacity: ExpressionSpecification = [
   1,
 ];
 
+/** Countries share one flat color (hover highlights); lower levels use the cost ramp. */
+const areaFillColor: ExpressionSpecification = [
+  "case",
+  ["!=", ["get", "level"], "country"],
+  intensityColor,
+  hovered,
+  tokens.color.accent,
+  tokens.data[1],
+];
+
 const SCAN_EMPTY_COLOR = "#ff4d4d";
 const markerStatus: ExpressionSpecification = ["coalesce", ["get", "status"], ""];
 const markerColor: ExpressionSpecification = [
@@ -483,7 +493,7 @@ export default function ExplorerMap() {
         type: "fill",
         source: "areas",
         paint: {
-          "fill-color": intensityColor,
+          "fill-color": areaFillColor,
           "fill-opacity": fillOpacity,
           "fill-opacity-transition": { duration: 150 },
         },
@@ -1215,12 +1225,16 @@ export default function ExplorerMap() {
           </button>
           {legendOpen && (
             <div className={styles.legend}>
-              <span>Cost</span>
-              <div className={styles.ramp} />
-              <div className={styles.rampLabels}>
-                <span>Lower</span>
-                <span>Higher</span>
-              </div>
+              {level > 0 && (
+                <>
+                  <span>Cost</span>
+                  <div className={styles.ramp} />
+                  <div className={styles.rampLabels}>
+                    <span>Lower</span>
+                    <span>Higher</span>
+                  </div>
+                </>
+              )}
               <ul className={styles.key}>
                 <li>
                   <i className={styles.keyDetected} /> Satellite scan
