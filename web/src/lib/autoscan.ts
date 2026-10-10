@@ -46,5 +46,7 @@ export function consumeQueuedAutoScan() {
 
 export function onAutoScan(listener: Listener) {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
