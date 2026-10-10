@@ -1,11 +1,5 @@
-import ContentPage from "@/components/content/ContentPage";
-import { problemContent } from "@/content/problem";
+import ProblemPage from "@/components/problem/ProblemPage";
 
-export default function ProblemPage() {
-  return (
-    <ContentPage
-      title={problemContent.title}
-      subtitle={problemContent.subtitle}
-    />
-  );
+export default function Page() {
+  return <ProblemPage />;
 }

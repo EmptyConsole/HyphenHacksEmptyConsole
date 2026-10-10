@@ -1,14 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ExpressionSpecification } from "@maplibre/maplibre-gl-style-spec";
 import * as maplibregl from "maplibre-gl";
-import type { GeoJSONSource, LngLatBoundsLike } from "maplibre-gl";
+import type { GeoJSONSource, LngLatBoundsLike, MapLayerMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { area as turfArea, bbox, featureCollection, pointOnFeature } from "@turf/turf";
+import { area as turfArea, bbox, booleanPointInPolygon, featureCollection, point, pointOnFeature } from "@turf/turf";
 import type { Feature, Polygon } from "geojson";
-import { dataProvider, type AreaCollection, type AreaFeature, type AreaProperties } from "@/data";
+import {
+  dataProvider,
+  type AreaCollection,
+  type AreaFeature,
+  type AreaProperties,
+  type ScanMeta,
+  type VillageLayer,
+} from "@/data";
+import { baselineConfig } from "@/data/baselineConfig";
 import { tokens } from "@/design/tokens";
 import { formatCost, formatPopulation } from "@/lib/format";
+import { tileCount } from "@/lib/tiles";
 import { baseStyle, intensityColor } from "./mapStyle";
 import styles from "./ExplorerMap.module.css";
 
@@ -20,8 +30,19 @@ const WORLD_VIEW = { center: [18, 12] as [number, number], zoom: 1.9 };
 const EMPTY = featureCollection([]);
 const LEVEL_LABEL = ["World", "Country", "Region"] as const;
 const CHILD_LABEL = ["countries", "regions", "villages"] as const;
+/** The scan button appears from this zoom; below it the view is far too big to scan. */
+const SCAN_MIN_ZOOM = 8;
 
-type Hover = { x: number; y: number; flip: boolean; props: AreaProperties } | null;
+type Hover =
+  | { x: number; y: number; flip: boolean; kind: "area"; props: AreaProperties }
+  | { x: number; y: number; flip: boolean; kind: "clinic"; name: string }
+  | null;
+
+type ScanState =
+  | { status: "idle" }
+  | { status: "running"; startedAt: number }
+  | { status: "done"; scan: ScanMeta }
+  | { status: "error"; message: string };
 
 /** Adds a 0–1 rank-based `intensity` so colors spread evenly at every zoom level. */
 function withIntensity(fc: AreaCollection) {
@@ -45,18 +66,49 @@ function boundsOf(feature: AreaFeature): LngLatBoundsLike {
   return [minX, minY, maxX, maxY];
 }
 
+/**
+ * Marker points for areas too small to see at the current zoom: scan locations on the
+ * world view, scan boxes inside a country, and villages inside a scan box.
+ * `areaId` is the area in the current collection that the marker stands for.
+ */
+function markerPoints(level: number, fc: AreaCollection, scans: ScanMeta[]) {
+  if (level === 0) {
+    return featureCollection(
+      scans.map((s) =>
+        point([(s.bbox.west + s.bbox.east) / 2, (s.bbox.south + s.bbox.north) / 2], { areaId: s.countryId }),
+      ),
+    );
+  }
+  if (level === 1 && fc.features[0]?.properties.data_source !== "detected") return EMPTY;
+  return featureCollection(
+    fc.features.map((f) => ({ ...pointOnFeature(f), properties: { areaId: f.properties.id } })),
+  );
+}
+
+function sum(fc: AreaCollection | null, key: "estimated_population" | "estimated_cost") {
+  return (fc?.features ?? []).reduce((s, f) => s + f.properties[key], 0);
+}
+
 export default function ExplorerMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const collectionRef = useRef<AreaCollection | null>(null);
   const hoverIdRef = useRef<string | null>(null);
+  const cameraKeyRef = useRef<string | null>(null);
 
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [trail, setTrail] = useState<AreaFeature[]>([]); // [country?, region?]
   const [collection, setCollection] = useState<AreaCollection | null>(null);
+  const [extras, setExtras] = useState<Omit<VillageLayer, "areas"> | null>(null);
+  const [parentProps, setParentProps] = useState<AreaProperties | null>(null);
   const [selected, setSelected] = useState<AreaProperties | null>(null);
   const [hover, setHover] = useState<Hover>(null);
+  const [dataVersion, setDataVersion] = useState(0);
+  const [scans, setScans] = useState<ScanMeta[]>([]);
+  const [viewTiles, setViewTiles] = useState<number | null>(null);
+  const [scan, setScan] = useState<ScanState>({ status: "idle" });
+  const [now, setNow] = useState(() => Date.now());
 
   const level = trail.length;
   const trailRef = useRef(trail);
@@ -66,9 +118,10 @@ export default function ExplorerMap() {
 
   const drillInto = useCallback((feature: AreaFeature) => {
     setHover(null);
-    setSelected(null);
-    if (trailRef.current.length < 2) setTrail((t) => [...t, feature]);
-    else setSelected(feature.properties);
+    if (trailRef.current.length < 2) {
+      setSelected(null);
+      setTrail((t) => [...t, feature]);
+    } else setSelected(feature.properties);
   }, []);
 
   const goTo = useCallback((depth: number) => {
@@ -84,7 +137,7 @@ export default function ExplorerMap() {
       center: WORLD_VIEW.center,
       zoom: WORLD_VIEW.zoom,
       minZoom: 1,
-      maxZoom: 14,
+      maxZoom: 17,
       cooperativeGestures: true,
       attributionControl: { compact: true },
     });
@@ -95,6 +148,12 @@ export default function ExplorerMap() {
       map.addSource("context", { type: "geojson", data: EMPTY });
       map.addSource("areas", { type: "geojson", data: EMPTY, promoteId: "id" });
       map.addSource("dots", { type: "geojson", data: EMPTY });
+      map.addSource("routes", { type: "geojson", data: EMPTY });
+      map.addSource("clinics", { type: "geojson", data: EMPTY });
+
+      const hovered: ExpressionSpecification = ["boolean", ["feature-state", "hover"], false];
+      const isSelected: ExpressionSpecification = ["boolean", ["feature-state", "selected"], false];
+      const detected: ExpressionSpecification = ["==", ["get", "data_source"], "detected"];
 
       map.addLayer({
         id: "areas-fill",
@@ -102,12 +161,7 @@ export default function ExplorerMap() {
         source: "areas",
         paint: {
           "fill-color": intensityColor,
-          "fill-opacity": [
-            "case",
-            ["boolean", ["feature-state", "hover"], false], 0.85,
-            ["boolean", ["feature-state", "selected"], false], 0.85,
-            0.5,
-          ],
+          "fill-opacity": ["case", hovered, 0.85, isSelected, 0.85, 0.5],
           "fill-opacity-transition": { duration: 150 },
         },
       });
@@ -116,13 +170,15 @@ export default function ExplorerMap() {
         type: "line",
         source: "areas",
         paint: {
+          // Detected areas get a solid constellation outline; modeled ones a faint one.
           "line-color": [
             "case",
-            ["boolean", ["feature-state", "hover"], false], tokens.color.accent,
-            ["boolean", ["feature-state", "selected"], false], tokens.color.accent,
+            hovered, tokens.color.accent,
+            isSelected, tokens.color.accent,
+            detected, tokens.color.constellation,
             "rgba(255,255,255,0.28)",
           ],
-          "line-width": ["case", ["boolean", ["feature-state", "hover"], false], 2, 0.6],
+          "line-width": ["case", hovered, 2, detected, 1.6, 0.6],
         },
       });
       map.addLayer({
@@ -130,6 +186,35 @@ export default function ExplorerMap() {
         type: "line",
         source: "context",
         paint: { "line-color": tokens.color.constellation, "line-width": 1.5 },
+      });
+      // Clinic → village routes. Off-road fallbacks are dashed so nobody mistakes them for roads.
+      map.addLayer({
+        id: "routes-road",
+        type: "line",
+        source: "routes",
+        filter: ["==", ["get", "kind"], "road"],
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": tokens.color.constellation, "line-width": 1.2, "line-opacity": 0.55 },
+      });
+      map.addLayer({
+        id: "routes-offroad",
+        type: "line",
+        source: "routes",
+        filter: ["==", ["get", "kind"], "offroad"],
+        paint: {
+          "line-color": tokens.color.constellation,
+          "line-width": 1.2,
+          "line-opacity": 0.55,
+          "line-dasharray": [2, 2],
+        },
+      });
+      map.addLayer({
+        id: "routes-active",
+        type: "line",
+        source: "routes",
+        filter: ["==", ["get", "villageId"], ""],
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": tokens.color.accent, "line-width": 3 },
       });
       map.addLayer({
         id: "dots-halo",
@@ -143,32 +228,79 @@ export default function ExplorerMap() {
         source: "dots",
         paint: { "circle-radius": 2.5, "circle-color": tokens.color.accent },
       });
+      // Invisible, bigger target so tiny markers are easy to hover and click.
+      map.addLayer({
+        id: "dots-hit",
+        type: "circle",
+        source: "dots",
+        paint: { "circle-radius": 11, "circle-opacity": 0 },
+      });
+      map.addLayer({
+        id: "clinics-halo",
+        type: "circle",
+        source: "clinics",
+        paint: { "circle-radius": 12, "circle-color": tokens.color.text, "circle-opacity": 0.15, "circle-blur": 1 },
+      });
+      map.addLayer({
+        id: "clinics-core",
+        type: "circle",
+        source: "clinics",
+        paint: {
+          "circle-radius": 5,
+          "circle-color": tokens.color.text,
+          "circle-stroke-color": tokens.color.constellation,
+          "circle-stroke-width": 2,
+        },
+      });
 
       const setHoverState = (id: string | null) => {
         if (hoverIdRef.current) map.setFeatureState({ source: "areas", id: hoverIdRef.current }, { hover: false });
         hoverIdRef.current = id;
         if (id) map.setFeatureState({ source: "areas", id }, { hover: true });
       };
+      const findArea = (id: unknown) => collectionRef.current?.features.find((f) => f.properties.id === String(id));
+      const flipAt = (e: MapLayerMouseEvent) => e.point.x > map.getContainer().clientWidth - 240;
 
-      map.on("mousemove", "areas-fill", (e) => {
-        const f = e.features?.[0];
-        if (!f) return;
+      const hoverArea = (e: MapLayerMouseEvent, id: unknown) => {
+        const feature = findArea(id);
+        if (!feature) return;
         map.getCanvas().style.cursor = "pointer";
-        setHoverState(String(f.id));
-        const flip = e.point.x > map.getContainer().clientWidth - 240;
-        setHover({ x: e.point.x, y: e.point.y, flip, props: f.properties as AreaProperties });
-      });
-      map.on("mouseleave", "areas-fill", () => {
+        setHoverState(feature.properties.id);
+        setHover({ x: e.point.x, y: e.point.y, flip: flipAt(e), kind: "area", props: feature.properties });
+      };
+      const leave = () => {
         map.getCanvas().style.cursor = "";
         setHoverState(null);
         setHover(null);
+      };
+
+      map.on("mousemove", "areas-fill", (e) => hoverArea(e, e.features?.[0]?.id));
+      map.on("mousemove", "dots-hit", (e) => hoverArea(e, e.features?.[0]?.properties.areaId));
+      map.on("mousemove", "clinics-core", (e) => {
+        const name = e.features?.[0]?.properties.name;
+        map.getCanvas().style.cursor = "default";
+        setHover({ x: e.point.x, y: e.point.y, flip: flipAt(e), kind: "clinic", name: String(name) });
       });
+      map.on("mouseleave", "areas-fill", leave);
+      map.on("mouseleave", "dots-hit", leave);
+      map.on("mouseleave", "clinics-core", leave);
+
+      // Rendered features are tile-clipped; always drill into the full original geometry.
       map.on("click", "areas-fill", (e) => {
-        // Rendered features are tile-clipped; look up the full original geometry.
-        const id = String(e.features?.[0]?.id);
-        const feature = collectionRef.current?.features.find((f) => f.properties.id === id);
+        const feature = findArea(e.features?.[0]?.id);
         if (feature) drillInto(feature);
       });
+      map.on("click", "dots-hit", (e) => {
+        const feature = findArea(e.features?.[0]?.properties.areaId);
+        if (feature) drillInto(feature);
+      });
+
+      const measureView = () => {
+        if (map.getZoom() < SCAN_MIN_ZOOM) return setViewTiles(null);
+        const b = map.getBounds();
+        setViewTiles(tileCount(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
+      };
+      map.on("moveend", measureView);
 
       setReady(true);
     });
@@ -179,7 +311,16 @@ export default function ExplorerMap() {
     };
   }, [drillInto]);
 
-  // ---- Load data for the current level and move the camera ----
+  // ---- Poll for scans saved by scan-batch.js or a live scan ----
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      const changed = await dataProvider.refresh().catch(() => false);
+      if (changed) setDataVersion((v) => v + 1);
+    }, baselineConfig.pollMs);
+    return () => clearInterval(timer);
+  }, []);
+
+  // ---- Load data for the current level; move the camera only when the level changes ----
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
@@ -190,36 +331,71 @@ export default function ExplorerMap() {
       setLoading(true);
       // Let the loading state paint before (possibly heavy) polygon generation.
       await new Promise((r) => setTimeout(r, 30));
-      const fc =
-        level === 0
-          ? await dataProvider.getCountries()
-          : level === 1
-            ? await dataProvider.getRegions(trail[0])
-            : (await dataProvider.getVillages(trail[1])).areas;
+      let fc: AreaCollection;
+      let layer: Omit<VillageLayer, "areas"> | null = null;
+      // The trail holds features from when they were clicked; look up current numbers.
+      let fresh: AreaProperties | null = null;
+      try {
+        if (level === 0) {
+          fc = await dataProvider.getCountries();
+        } else if (level === 1) {
+          fc = await dataProvider.getRegions(trail[0]);
+          fresh = (await dataProvider.getCountries()).features.find((f) => f.properties.id === parent.properties.id)
+            ?.properties ?? null;
+        } else {
+          const villages = await dataProvider.getVillages(trail[1]);
+          fc = villages.areas;
+          layer = { routes: villages.routes, clinics: villages.clinics };
+          fresh = (await dataProvider.getRegions(trail[0])).features.find((f) => f.properties.id === parent.properties.id)
+            ?.properties ?? null;
+        }
+      } catch (error) {
+        console.error(error);
+        if (!cancelled) setLoading(false);
+        return;
+      }
       if (cancelled) return;
 
+      const currentScans = dataProvider.getScans();
       hoverIdRef.current = null;
       collectionRef.current = fc;
       setCollection(fc);
+      setExtras(layer);
+      setScans(currentScans);
+      setParentProps(fresh ?? parent?.properties ?? null);
+      setSelected((s) => (s && fc.features.some((f) => f.properties.id === s.id) ? s : null));
       (map.getSource("areas") as GeoJSONSource).setData(withIntensity(fc));
       (map.getSource("context") as GeoJSONSource).setData(parent ? featureCollection([parent]) : EMPTY);
-      (map.getSource("dots") as GeoJSONSource).setData(
-        level === 2 ? featureCollection(fc.features.map((f) => pointOnFeature(f))) : EMPTY,
-      );
+      (map.getSource("dots") as GeoJSONSource).setData(markerPoints(level, fc, currentScans));
+      (map.getSource("routes") as GeoJSONSource).setData(layer?.routes ?? EMPTY);
+      (map.getSource("clinics") as GeoJSONSource).setData(layer?.clinics ?? EMPTY);
 
-      const wide = map.getContainer().clientWidth > 760;
-      const padding = wide ? { top: 60, bottom: 60, left: 360, right: 60 } : { top: 200, bottom: 30, left: 30, right: 30 };
-      if (parent) map.fitBounds(boundsOf(parent), { padding, duration: 1600, maxZoom: 12 });
-      else map.flyTo({ ...WORLD_VIEW, duration: 1600 });
+      const cameraKey = trail.map((f) => f.properties.id).join("|");
+      if (cameraKey !== cameraKeyRef.current) {
+        cameraKeyRef.current = cameraKey;
+        const wide = map.getContainer().clientWidth > 760;
+        const padding = wide ? { top: 60, bottom: 60, left: 360, right: 60 } : { top: 200, bottom: 30, left: 30, right: 30 };
+        // Scan boxes are ~4 km across, so allow a much closer zoom for detected regions.
+        const maxZoom = parent?.properties.data_source === "detected" && level === 2 ? 15 : 12;
+        if (parent) map.fitBounds(boundsOf(parent), { padding, duration: 1600, maxZoom });
+        else map.flyTo({ ...WORLD_VIEW, duration: 1600 });
+      }
       setLoading(false);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [ready, trail, level]);
+  }, [ready, trail, level, dataVersion]);
 
-  // ---- Selected village highlight ----
+  // ---- Selected village highlight and its route ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const routeFor = selected?.id ?? (hover?.kind === "area" && hover.props.level === "village" ? hover.props.id : "");
+    map.setFilter("routes-active", ["==", ["get", "villageId"], routeFor]);
+  }, [ready, selected, hover]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !selected) return;
@@ -238,21 +414,81 @@ export default function ExplorerMap() {
     return () => window.removeEventListener("keydown", onKey);
   }, [goTo]);
 
-  const totals = useMemo(() => {
-    const features = collection?.features ?? [];
-    return {
-      count: features.length,
-      population: features.reduce((s, f) => s + f.properties.estimated_population, 0),
-      cost: features.reduce((s, f) => s + f.properties.estimated_cost, 0),
-    };
-  }, [collection]);
+  // ---- Elapsed-time ticker while a live scan runs ----
+  useEffect(() => {
+    if (scan.status !== "running") return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [scan.status]);
+
+  const scanView = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const b = map.getBounds();
+    const center = map.getCenter();
+    const countries = await dataProvider.getCountries();
+    const country = countries.features.find((f) => booleanPointInPolygon([center.lng, center.lat], f));
+    if (!country) {
+      setScan({ status: "error", message: "Center the view on land inside a country." });
+      return;
+    }
+    setScan({ status: "running", startedAt: Date.now() });
+    setNow(Date.now());
+    try {
+      const result = await dataProvider.scanArea({
+        south: b.getSouth(),
+        west: b.getWest(),
+        north: b.getNorth(),
+        east: b.getEast(),
+        countryId: country.properties.id,
+        countryName: country.properties.name,
+      });
+      setScan({ status: "done", scan: result });
+      setDataVersion((v) => v + 1);
+    } catch (error) {
+      setScan({ status: "error", message: (error as Error).message });
+    }
+  }, []);
+
+  const openScan = useCallback(async (result: ScanMeta) => {
+    const countries = await dataProvider.getCountries();
+    const country = countries.features.find((f) => f.properties.id === result.countryId);
+    if (!country) return;
+    const regions = await dataProvider.getRegions(country);
+    const region = regions.features.find((f) => f.properties.id === `scan:${result.id}`);
+    setSelected(null);
+    setScan({ status: "idle" });
+    setTrail(region ? [country, region] : [country]);
+  }, []);
+
+  const totals = useMemo(
+    () => ({
+      count: collection?.features.length ?? 0,
+      population: level === 0 ? sum(collection, "estimated_population") : (parentProps?.estimated_population ?? 0),
+      cost: level === 0 ? sum(collection, "estimated_cost") : (parentProps?.estimated_cost ?? 0),
+    }),
+    [collection, level, parentProps],
+  );
+
+  const detectedHere = collection?.features[0]?.properties.data_source === "detected" && level > 0;
+  const detectedCountries = new Set(scans.map((s) => s.countryId)).size;
+  const detectedVillages = scans.reduce((s, x) => s + x.villages, 0);
+  const osmConfirmed = detectedHere && level === 2
+    ? collection!.features.filter((f) => f.properties.detection === "osm").length
+    : 0;
 
   const hint =
     level === 0
-      ? "Hover a country for estimates. Click to zoom in."
+      ? "Hover a country for estimates. Gold dots are real scans. Click to zoom in."
       : level === 1
-        ? "Click a region to see its villages."
-        : "Click a village for details.";
+        ? detectedHere
+          ? "Each box is a satellite scan. Click one to see what it found."
+          : "Click a region to see its villages."
+        : detectedHere
+          ? "Click a settlement for its route and certainty."
+          : "Click a village for details.";
+
+  const canScan = viewTiles !== null && viewTiles <= baselineConfig.maxScanTiles;
 
   return (
     <div className={styles.wrap}>
@@ -275,7 +511,8 @@ export default function ExplorerMap() {
 
         <div>
           <p className="eyebrow">{LEVEL_LABEL[level]}</p>
-          <h3 className={styles.title}>{trail[level - 1]?.properties.name ?? "All countries"}</h3>
+          <h3 className={styles.title}>{parentProps?.name ?? "All countries"}</h3>
+          {parentProps && <SourceBadge props={parentProps} />}
         </div>
 
         <dl className={styles.stats}>
@@ -293,6 +530,23 @@ export default function ExplorerMap() {
           </div>
         </dl>
 
+        {level === 0 && (
+          <p className={styles.detected}>
+            <strong>Real detections</strong>
+            {scans.length
+              ? `${detectedCountries} countries · ${scans.length} scan areas · ${detectedVillages} settlements`
+              : "No scans yet. Totals use the World Bank baseline."}
+          </p>
+        )}
+        {detectedHere && (
+          <p className={styles.detected}>
+            <strong>Detected here</strong>
+            {formatPopulation(sum(collection, "estimated_population"))} people ·{" "}
+            {formatCost(sum(collection, "estimated_cost"))}
+            {level === 2 && ` · ${osmConfirmed} of ${totals.count} confirmed by OSM`}
+          </p>
+        )}
+
         {selected && (
           <div className={styles.selected}>
             <p className="eyebrow">Selected</p>
@@ -300,6 +554,7 @@ export default function ExplorerMap() {
             <span>
               {formatPopulation(selected.estimated_population)} people · {formatCost(selected.estimated_cost)}
             </span>
+            {selected.certainty !== undefined && <VillageDetails props={selected} />}
           </div>
         )}
 
@@ -310,6 +565,27 @@ export default function ExplorerMap() {
             <span>Lower</span>
             <span>Higher</span>
           </div>
+          <ul className={styles.key}>
+            <li>
+              <i className={styles.keyDetected} /> Detected by satellite scan
+            </li>
+            <li>
+              <i className={styles.keyModeled} /> Modeled estimate
+            </li>
+            {extras && extras.routes.features.length > 0 && (
+              <>
+                <li>
+                  <i className={styles.keyRoute} /> Road route from clinic
+                </li>
+                <li>
+                  <i className={styles.keyOffroad} /> Off-road stretch
+                </li>
+                <li>
+                  <i className={styles.keyClinic} /> Clinic
+                </li>
+              </>
+            )}
+          </ul>
         </div>
 
         <p className={styles.hint}>
@@ -318,25 +594,96 @@ export default function ExplorerMap() {
         </p>
       </aside>
 
+      {(viewTiles !== null || scan.status !== "idle") && (
+        <div className={styles.scanBox}>
+          {scan.status === "running" ? (
+            <span>Scanning… {Math.round((now - scan.startedAt) / 1000)}s</span>
+          ) : scan.status === "done" ? (
+            <>
+              <span>
+                Found {scan.scan.villages} settlements in {scan.scan.countryName}.
+              </span>
+              <button onClick={() => openScan(scan.scan)}>View results</button>
+            </>
+          ) : scan.status === "error" ? (
+            <>
+              <span>{scan.message}</span>
+              <button onClick={() => setScan({ status: "idle" })}>Dismiss</button>
+            </>
+          ) : (
+            <button onClick={scanView} disabled={!canScan} title={canScan ? undefined : `${viewTiles} tiles in view`}>
+              {canScan ? "Scan this view" : "Zoom in to scan"}
+            </button>
+          )}
+        </div>
+      )}
+
       {hover && (
         <div
           className={styles.tooltip}
           style={{ left: hover.x, top: hover.y }}
           data-flip={hover.flip || undefined}
         >
-          <strong>{hover.props.name}</strong>
-          <dl>
-            <div>
-              <dt>Population</dt>
-              <dd>{formatPopulation(hover.props.estimated_population)}</dd>
-            </div>
-            <div>
-              <dt>Cost</dt>
-              <dd>{formatCost(hover.props.estimated_cost)}</dd>
-            </div>
-          </dl>
+          {hover.kind === "clinic" ? (
+            <>
+              <span className={styles.badge}>Clinic</span>
+              <strong>{hover.name}</strong>
+            </>
+          ) : (
+            <>
+              <SourceBadge props={hover.props} />
+              <strong>{hover.props.name}</strong>
+              <dl>
+                <div>
+                  <dt>Population</dt>
+                  <dd>{formatPopulation(hover.props.estimated_population)}</dd>
+                </div>
+                <div>
+                  <dt>Cost</dt>
+                  <dd>{formatCost(hover.props.estimated_cost)}</dd>
+                </div>
+              </dl>
+              {hover.props.certainty !== undefined && <VillageDetails props={hover.props} />}
+            </>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+function SourceBadge({ props }: { props: AreaProperties }) {
+  const detected = props.data_source === "detected";
+  return (
+    <span className={styles.badge} data-detected={detected || undefined}>
+      {detected ? "Detected" : "Modeled estimate"}
+    </span>
+  );
+}
+
+/** Certainty, reach and clinic for a detected village. */
+function VillageDetails({ props }: { props: AreaProperties }) {
+  return (
+    <dl className={styles.details}>
+      <div>
+        <dt>Certainty</dt>
+        <dd>
+          {props.certainty}
+          <small>{props.detection === "osm" ? " · OSM confirmed" : " · satellite only"}</small>
+        </dd>
+      </div>
+      {props.reach_label && (
+        <div>
+          <dt>Reach</dt>
+          <dd>
+            {props.reach_label} · {formatCost(props.reach_cost ?? 0)}
+          </dd>
+        </div>
+      )}
+      <div>
+        <dt>Clinic</dt>
+        <dd>{props.clinic_name ?? "none in range"}</dd>
+      </div>
+    </dl>
   );
 }
