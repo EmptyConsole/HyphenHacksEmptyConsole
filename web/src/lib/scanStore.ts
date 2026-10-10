@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ScanMeta, ScanRequest } from "@/data/types";
+import type { ScanMeta, ScanRequest, ScanSummary } from "@/data/types";
 
 /**
  * Server-only. Scans live in web/data/scans as `<id>.json` (detector output) plus
@@ -26,6 +26,17 @@ export async function listScans(): Promise<ScanMeta[]> {
       .map(async (f) => JSON.parse(await readFile(path.join(SCANS_DIR, f), "utf8")) as ScanMeta),
   );
   return metas.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function summarizeScans(scans: ScanMeta[]): ScanSummary {
+  return {
+    scans: scans.length,
+    countries: new Set(scans.map((s) => s.countryId)).size,
+    settlements: scans.reduce((sum, s) => sum + s.villages, 0),
+    osmMatched: scans.reduce((sum, s) => sum + s.osmMatched, 0),
+    population: scans.reduce((sum, s) => sum + s.population, 0),
+    costUsd: scans.reduce((sum, s) => sum + s.costUsd, 0),
+  };
 }
 
 /** The raw detector FeatureCollection as text, or null for an unknown id. */
@@ -84,6 +95,8 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
     bbox: { south, west, north, east },
     createdAt: new Date().toISOString(),
     origin: "live",
+    // Matches CLINIC_PAD_DEG in detect-villages.js.
+    clinicRangeKm: 40,
     villages: collection.features.length,
     population,
     costUsd,

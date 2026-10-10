@@ -41,6 +41,14 @@ interface DetectedVillage {
     reachLabel?: "easy" | "moderate" | "hard";
     reachUsd?: number;
     predictedCostUsd?: number;
+    // Saved by newer detector runs only.
+    buildings?: number;
+    areaM2?: number;
+    compactness?: number;
+    roofShare?: number;
+    travelMeters?: number;
+    offroadMeters?: number;
+    slowMeters?: number;
     route?: { type: "LineString"; coordinates: [number, number][] };
     clinic?: { name: string | null; lon: number; lat: number; osmId: number } | null;
   };
@@ -78,13 +86,17 @@ function bboxPolygon({ south, west, north, east }: ScanMeta["bbox"]): Polygon {
 
 async function buildCountries(): Promise<AreaCollection> {
   const base = await fillerCountries();
-  const globalCost = observedCostPerPerson(scans) ?? cfg.defaultCostPerPerson;
+  const observedGlobal = observedCostPerPerson(scans);
+  const globalCost = observedGlobal ?? cfg.defaultCostPerPerson;
+  const globalCostSource = observedGlobal !== null ? "all_scans" : "default";
   const features = base.features.map((f): AreaFeature => {
     const id = f.properties.id;
     const own = scansFor(id);
-    const ruralPeople = rural[id]?.rural ?? (turfArea(f) / 1e6) * cfg.fallbackRuralPerKm2;
+    const wb = rural[id];
+    const ruralPeople = Math.round(wb?.rural ?? (turfArea(f) / 1e6) * cfg.fallbackRuralPerKm2);
     const population = Math.round(ruralPeople * cfg.noCoverageShare);
-    const perPerson = observedCostPerPerson(own) ?? globalCost;
+    const ownCost = observedCostPerPerson(own);
+    const perPerson = ownCost ?? globalCost;
     return {
       ...f,
       properties: {
@@ -92,6 +104,12 @@ async function buildCountries(): Promise<AreaCollection> {
         estimated_population: population,
         estimated_cost: Math.round(population * perPerson),
         data_source: own.length ? "detected" : "modeled",
+        baseline_rural: ruralPeople,
+        baseline_year: wb?.year,
+        baseline_source: wb ? "world_bank" : "area_estimate",
+        cost_per_person: perPerson,
+        cost_per_person_source: ownCost !== null ? "own_scans" : globalCostSource,
+        cost_scan_count: ownCost !== null ? own.length : globalCostSource === "all_scans" ? scans.length : 0,
       },
     };
   });
@@ -147,6 +165,15 @@ async function scanVillages(scanId: string): Promise<VillageLayer> {
         reach_difficulty: p.reachDifficulty,
         reach_cost: p.reachUsd,
         clinic_name: p.clinic ? (p.clinic.name ?? "Unnamed clinic") : null,
+        healthcare_cost: p.healthcareUsd,
+        buildings: p.buildings,
+        // Older scans did not save the area; the polygon gives it back.
+        area_m2: p.areaM2 ?? Math.round(turfArea(v)),
+        compactness: p.compactness,
+        roof_share: p.roofShare,
+        travel_m: p.travelMeters,
+        offroad_m: p.offroadMeters,
+        slow_m: p.slowMeters,
       },
     });
     const line = p.route?.coordinates ?? [];
@@ -184,23 +211,27 @@ function memo<T>(cache: Map<string, Promise<T>>, key: string, make: () => Promis
   return value;
 }
 
+/** Loads the scan list once. The map still works on the baseline alone if it fails. */
+async function ensureScans() {
+  if (!scansVersion) await hestiaProvider.refresh().catch(() => false);
+}
+
 export const hestiaProvider: MapDataProvider = {
   async getCountries() {
-    if (!scansVersion) {
-      // No scan list yet. The map still works on the baseline alone.
-      await this.refresh().catch(() => false);
-    }
+    await ensureScans();
     countriesCache ??= buildCountries();
     return countriesCache;
   },
 
-  getRegions(country) {
+  async getRegions(country) {
+    await ensureScans();
     return memo(regionCache, country.properties.id, async () =>
       scansFor(country.properties.id).length ? scanRegions(country) : fillerChildren(country),
     );
   },
 
-  getVillages(region) {
+  async getVillages(region) {
+    await ensureScans();
     const id = region.properties.id;
     return memo(villageCache, id, async () =>
       id.startsWith(SCAN_PREFIX)
@@ -217,7 +248,8 @@ export const hestiaProvider: MapDataProvider = {
     const response = await fetch("/api/scans", { cache: "no-store" });
     if (!response.ok) return false;
     const next = ((await response.json()) as { scans: ScanMeta[] }).scans;
-    const version = next.map((s) => s.id).join(",") || "none";
+    // Re-run scans keep their id, so include the update time to notice them too.
+    const version = next.map((s) => `${s.id}@${s.updatedAt ?? ""}`).join(",") || "none";
     if (version === scansVersion) return false;
     scans = next;
     scansVersion = version;

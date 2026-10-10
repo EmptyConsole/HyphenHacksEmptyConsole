@@ -31,6 +31,10 @@
   background: var(--color-surface-glass);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
+  /* Open explanations can make the panel taller than the map. */
+  max-height: calc(100% - 2 * var(--space-4));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .crumbs {
@@ -75,19 +79,97 @@
 .stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
-.stats dt {
+/* Every number is a button that opens its own explanation. */
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin: calc(-1 * var(--space-2));
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  text-align: left;
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.stat:hover,
+.detected:hover,
+.detailRow:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.stat[aria-expanded="true"],
+.detected[aria-expanded="true"],
+.detailRow[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.statLabel {
   font-size: var(--text-micro);
   color: var(--color-text-tertiary);
   text-transform: capitalize;
+  text-decoration: underline dotted rgba(255, 255, 255, 0.25);
+  text-underline-offset: 3px;
 }
 
-.stats dd {
+.statValue {
   font-family: var(--font-mono);
   font-size: var(--text-body);
   font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+
+.explain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-snug);
+}
+
+.explain p {
+  color: var(--color-text);
+}
+
+.explain dl {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.explain dl div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.explain dt {
+  color: var(--color-text-tertiary);
+}
+
+.explain dd {
+  flex: none;
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+
+/* The last row is the result of the rows above it. */
+.explain dl div:last-child:not(:first-child) {
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--color-border);
+}
+
+.explain small {
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
 }
 
 .selected {
@@ -152,6 +234,14 @@
   transform: translate(calc(-100% - 16px), 16px);
 }
 
+.tooltip[data-flip-y] {
+  transform: translate(16px, calc(-100% - 16px));
+}
+
+.tooltip[data-flip][data-flip-y] {
+  transform: translate(calc(-100% - 16px), calc(-100% - 16px));
+}
+
 .tooltip dl {
   margin-top: var(--space-2);
   display: grid;
@@ -201,13 +291,20 @@
 .detected {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 2px;
+  margin: calc(-1 * var(--space-2));
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  text-align: left;
   font-size: var(--text-small);
   font-family: var(--font-mono);
   color: var(--color-text-secondary);
 }
 
 .detected strong {
+  text-decoration: underline dotted rgba(255, 255, 255, 0.25);
+  text-underline-offset: 3px;
   font-family: var(--font-sans);
   font-size: var(--text-micro);
   font-weight: var(--weight-medium);
@@ -222,10 +319,38 @@
   gap: var(--space-1);
 }
 
-.details div {
+.details > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+dl.details > div {
+  flex-direction: row;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.detailRow {
   display: flex;
   justify-content: space-between;
   gap: var(--space-4);
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.detailRow span:first-child {
+  color: var(--color-text-tertiary);
+  text-decoration: underline dotted rgba(255, 255, 255, 0.25);
+  text-underline-offset: 3px;
+}
+
+.detailRow span:last-child {
+  font-family: var(--font-mono);
+  text-align: right;
+  color: var(--color-text);
 }
 
 .details dt {

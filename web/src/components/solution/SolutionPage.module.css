@@ -1,0 +1,362 @@
+/* Diagram styles only. Layout, type and cards come from ProblemPage.module.css. */
+
+/* ---------- Detection steps ---------- */
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.stepArt {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 1px var(--color-border);
+}
+
+.stepNum {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--color-constellation);
+}
+
+.stepTitle {
+  font-weight: var(--weight-semibold);
+}
+
+.stepText {
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+}
+
+.satellite {
+  fill: #18211c;
+}
+
+.panel {
+  fill: var(--color-bg-elevated);
+}
+
+.tree {
+  fill: #2c4a35;
+}
+
+.dirtRoad {
+  fill: none;
+  stroke: #4d453a;
+  stroke-width: 5;
+}
+
+.speckle {
+  fill: var(--color-text-tertiary);
+}
+
+.grown {
+  fill: var(--data-3);
+  opacity: 0.35;
+}
+
+.outline {
+  fill: var(--color-constellation-soft);
+  stroke: var(--color-constellation);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.ghostRoofs {
+  fill: var(--data-4);
+  opacity: 0.3;
+}
+
+.vertex {
+  fill: var(--color-constellation);
+}
+
+.dropped {
+  fill: none;
+  stroke: var(--color-text-tertiary);
+  stroke-dasharray: 2 2;
+}
+
+.droppedMark {
+  stroke: var(--color-text-tertiary);
+}
+
+/* ---------- Split and stacked bars ---------- */
+
+.split,
+.stack {
+  display: flex;
+  gap: 3px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path var(--duration-slower) var(--ease-standard);
+}
+
+[data-visible] .split,
+[data-visible] .stack {
+  clip-path: inset(0);
+}
+
+.split {
+  height: 20px;
+}
+
+.splitPart {
+  flex-basis: 0;
+  min-width: 4px;
+}
+
+.splitKey {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  list-style: none;
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+}
+
+.splitKey li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.splitKey strong {
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.keyMissing::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--data-2);
+}
+
+.stack {
+  height: 32px;
+}
+
+.stackPart {
+  display: flex;
+  align-items: center;
+  flex-basis: 0;
+  padding-inline: var(--space-3);
+  font-size: var(--text-small);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-accent-contrast);
+}
+
+.stackKey {
+  display: flex;
+  gap: 3px;
+  margin-top: var(--space-3);
+  list-style: none;
+}
+
+.stackKey li {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 0;
+  min-width: 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid;
+}
+
+.stackLabel {
+  font-size: var(--text-small);
+  color: var(--color-text);
+}
+
+.stackDetail {
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+
+.stackPart[data-tone="0"] { background: var(--data-4); }
+.stackPart[data-tone="1"] { background: var(--data-3); }
+.stackPart[data-tone="2"] { background: var(--data-2); }
+.stackPart[data-tone="3"] { background: var(--color-constellation); }
+.stackKey li[data-tone="0"] { border-color: var(--data-4); }
+.stackKey li[data-tone="1"] { border-color: var(--data-3); }
+.stackKey li[data-tone="2"] { border-color: var(--data-2); }
+.stackKey li[data-tone="3"] { border-color: var(--color-constellation); }
+
+/* ---------- Route diagram ---------- */
+
+.route {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.ghost {
+  fill: none;
+  stroke: var(--color-text-tertiary);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 6;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+
+.leg {
+  fill: none;
+  stroke: var(--color-constellation);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.legRoad {
+  stroke-width: 4;
+}
+
+.legTrack {
+  stroke-width: 3;
+  stroke-dasharray: 9 7;
+}
+
+.legOffroad {
+  stroke-width: 3.5;
+  stroke-dasharray: 0.5 8;
+}
+
+.star {
+  fill: var(--color-bg);
+  stroke: var(--color-constellation);
+  stroke-width: 2;
+}
+
+.legLabel {
+  font-size: 13px;
+  fill: var(--color-text-secondary);
+}
+
+.houses {
+  fill: var(--data-4);
+}
+
+.villageLabel {
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+  fill: var(--data-4);
+}
+
+.clinic,
+.clinicChosen {
+  font-size: 13px;
+}
+
+.clinic circle {
+  fill: var(--color-surface);
+  stroke: var(--color-text-tertiary);
+  stroke-width: 1.5;
+}
+
+.clinic path {
+  stroke: var(--color-text-tertiary);
+  stroke-width: 2;
+}
+
+.clinic text {
+  fill: var(--color-text-tertiary);
+}
+
+.clinicChosen circle {
+  fill: var(--color-constellation-soft);
+  stroke: var(--color-constellation);
+  stroke-width: 2;
+}
+
+.clinicChosen path {
+  stroke: var(--color-constellation);
+  stroke-width: 2.5;
+}
+
+.clinicChosen text {
+  font-weight: var(--weight-semibold);
+  fill: var(--color-text);
+}
+
+/* ---------- Pricing formula ---------- */
+
+.formula {
+  display: flex;
+  flex-direction: column;
+}
+
+.formulaRow {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: var(--space-4);
+  padding-block: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--text-small);
+}
+
+.formulaRow:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.formulaRow:last-child {
+  font-weight: var(--weight-semibold);
+}
+
+.formulaRow:last-child dt {
+  color: var(--color-accent);
+}
+
+.formulaRow dt {
+  color: var(--color-text-secondary);
+}
+
+.formulaRow dd {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 600px) {
+  .steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stackKey {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .formulaRow {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .split,
+  .stack {
+    clip-path: none;
+  }
+}

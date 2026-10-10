@@ -41,8 +41,9 @@ const OVERPASS_SERVERS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
 ];
-// How far outside the village box to look for a clinic. 0.12° is about 13 km.
-const CLINIC_PAD_DEG = 0.12;
+// How far outside the village box to look for a clinic. 0.36° is about 40 km.
+// Remote villages are often 20–50 km from the nearest facility.
+const CLINIC_PAD_DEG = 0.36;
 // Clinics tried per village. The cheapest road trip of these three wins.
 const CLINICS_PER_VILLAGE = 3;
 // A road farther than this is not a usable approach. The trip is priced off-road.
@@ -1135,6 +1136,9 @@ function straightTrip(clinic, lon, lat) {
     reachUsd,
     reachDifficulty: difficulty.score,
     reachLabel: difficulty.label,
+    travelMeters: meters,
+    offroadMeters: meters,
+    slowMeters: meters,
     route: [
       [round6(clinic.lon), round6(clinic.lat)],
       [round6(lon), round6(lat)],
@@ -1156,6 +1160,9 @@ function tripFromRoad(clinic, source, village, traced, destLon, destLat) {
     reachUsd,
     reachDifficulty: difficulty.score,
     reachLabel: difficulty.label,
+    travelMeters,
+    offroadMeters: village.meters,
+    slowMeters,
     route,
     clinic,
   };
@@ -1229,6 +1236,9 @@ function scoreAccess(features, clinics, graph) {
         reachUsd: Math.round((meters / 1000) * OFFROAD_USD_PER_KM),
         reachDifficulty: difficulty.score,
         reachLabel: difficulty.label,
+        travelMeters: meters,
+        offroadMeters: meters,
+        slowMeters: meters,
         route: [[round6(lon), round6(lat)]],
         clinic: null,
       };
@@ -1241,6 +1251,9 @@ function scoreAccess(features, clinics, graph) {
       reachDifficulty: best.reachDifficulty,
       reachLabel: best.reachLabel,
       reachUsd: best.reachUsd,
+      travelMeters: Math.round(best.travelMeters),
+      offroadMeters: Math.round(best.offroadMeters),
+      slowMeters: Math.round(best.slowMeters),
       predictedCostUsd: healthcareUsd + best.reachUsd,
       route: best.route,
       clinic: best.clinic
@@ -1296,6 +1309,10 @@ async function recommendAccess(features, bbox) {
     features[i].properties.reachDifficulty = score.reachDifficulty;
     features[i].properties.reachLabel = score.reachLabel;
     features[i].properties.reachUsd = score.reachUsd;
+    // The three inputs to reachDifficulty, so a map can explain the score.
+    features[i].properties.travelMeters = score.travelMeters;
+    features[i].properties.offroadMeters = score.offroadMeters;
+    features[i].properties.slowMeters = score.slowMeters;
     features[i].properties.predictedCostUsd = score.predictedCostUsd;
     // Each polygon keeps its own trip so a map can draw every route, not just the winner.
     features[i].properties.route = { type: "LineString", coordinates: score.route };
@@ -1417,6 +1434,11 @@ async function main() {
         // People and vaccination cost. Reach cost is filled in after routing.
         population,
         healthcareUsd,
+        // Inputs to the population estimate and the satellite certainty, kept for explanations.
+        buildings: blob.buildings,
+        areaM2: Math.round(stats.area),
+        compactness: Math.round(stats.compactness * 1000) / 1000,
+        roofShare: Math.round(roofShare * 1000) / 1000,
       },
       // One outer ring. Holes were dropped when the contour was traced.
       geometry: { type: "Polygon", coordinates: [closed] },

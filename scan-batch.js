@@ -27,6 +27,9 @@ const PICK_TRIES = 6;
 // Pause between boxes so the public Overpass servers are not hammered.
 // Each box makes about four Overpass queries.
 const PAUSE_MS = 15000;
+// Must match CLINIC_PAD_DEG in detect-villages.js (0.36° ≈ 40 km). Saved scans with a
+// smaller `clinicRangeKm` are re-run at startup so every scan uses the same clinic search.
+const CLINIC_RANGE_KM = 40;
 // Wait before retrying a box that failed because Overpass was busy.
 const BUSY_RETRY_MS = 45000;
 // A box that takes longer than this is abandoned.
@@ -202,12 +205,24 @@ function runDetector(bbox) {
       clearTimeout(timer);
       if (code !== 0) return reject(new Error(stderr.trim().split("\n").pop() || `exit ${code}`));
       try {
-        resolve(JSON.parse(stdout));
+        resolve({ collection: JSON.parse(stdout), stderr });
       } catch (error) {
         reject(error);
       }
     });
   });
+}
+
+// Public Overpass servers turn requests away under load. One slower retry usually works.
+async function runDetectorRetrying(country, bbox) {
+  try {
+    return await runDetector(bbox);
+  } catch (error) {
+    if (!/Overpass/.test(error.message)) throw error;
+    log(`${country.name}: Overpass busy, retrying in ${BUSY_RETRY_MS / 1000}s`);
+    await sleep(BUSY_RETRY_MS);
+    return runDetector(bbox);
+  }
 }
 
 // Write to a temp name and rename, so a reader never sees half a file.
@@ -272,15 +287,13 @@ async function scanOne(country, shapes) {
   };
   log(`${country.name}: scanning near ${village.name ?? "unnamed village"} ${JSON.stringify(bbox)}`);
   try {
-    let collection;
-    try {
-      collection = await runDetector(bbox);
-    } catch (error) {
-      // Public Overpass servers turn requests away under load. One slower retry usually works.
-      if (!/Overpass/.test(error.message)) throw error;
-      log(`${country.name}: Overpass busy, retrying in ${BUSY_RETRY_MS / 1000}s`);
+    let { collection, stderr } = await runDetectorRetrying(country, bbox);
+    // The detector carries on without clinics or roads when Overpass refuses those
+    // queries, which leaves the scan without routes. Try once more for complete data.
+    if (/(clinics|roads) unavailable/.test(stderr)) {
+      log(`${country.name}: clinics or roads missing, retrying in ${BUSY_RETRY_MS / 1000}s`);
       await sleep(BUSY_RETRY_MS);
-      collection = await runDetector(bbox);
+      ({ collection } = await runDetectorRetrying(country, bbox));
     }
     const id = `${country.id}-${Date.now().toString(36)}`;
     const meta = {
@@ -291,6 +304,7 @@ async function scanOne(country, shapes) {
       bbox,
       createdAt: new Date().toISOString(),
       origin: "batch",
+      clinicRangeKm: CLINIC_RANGE_KM,
       ...summarize(collection),
     };
     // Data file first, then meta: a meta file always points at a complete scan.
@@ -304,6 +318,37 @@ async function scanOne(country, shapes) {
   }
 }
 
+// Re-run saved scans made with an older, smaller clinic radius. Same id, box and label,
+// so the map updates in place.
+async function rescanOutdated(deadline) {
+  for (const file of readdirSync(OUT_DIR)) {
+    if (!file.endsWith(".meta.json") || Date.now() > deadline) continue;
+    const meta = JSON.parse(readFileSync(join(OUT_DIR, file), "utf8"));
+    if ((meta.clinicRangeKm ?? CLINIC_RANGE_KM) >= CLINIC_RANGE_KM) continue;
+    log(`${meta.countryName}: re-running ${meta.id} with the ${CLINIC_RANGE_KM} km clinic radius`);
+    try {
+      let { collection, stderr } = await runDetectorRetrying({ name: meta.countryName }, meta.bbox);
+      if (/(clinics|roads) unavailable/.test(stderr)) {
+        log(`${meta.countryName}: clinics or roads missing, retrying in ${BUSY_RETRY_MS / 1000}s`);
+        await sleep(BUSY_RETRY_MS);
+        ({ collection } = await runDetectorRetrying({ name: meta.countryName }, meta.bbox));
+      }
+      const updated = {
+        ...meta,
+        clinicRangeKm: CLINIC_RANGE_KM,
+        updatedAt: new Date().toISOString(),
+        ...summarize(collection),
+      };
+      writeAtomic(join(OUT_DIR, `${meta.id}.json`), collection);
+      writeAtomic(join(OUT_DIR, file), updated);
+      log(`${meta.countryName}: updated ${meta.id} (${updated.villages} villages, ${updated.population} people)`);
+    } catch (error) {
+      log(`${meta.countryName}: re-run of ${meta.id} failed: ${error.message}`);
+    }
+    await sleep(PAUSE_MS);
+  }
+}
+
 async function main() {
   const hours = readHours(process.argv);
   const deadline = Date.now() + hours * 3600 * 1000;
@@ -313,6 +358,8 @@ async function main() {
   const shapes = new Map(
     feature(topo, topo.objects.countries).features.map((f) => [String(f.id), f.geometry])
   );
+
+  await rescanOutdated(deadline);
 
   let done = 0;
   for (let pass = 1; Date.now() < deadline; pass++) {

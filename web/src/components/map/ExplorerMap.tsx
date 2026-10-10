@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ExpressionSpecification } from "@maplibre/maplibre-gl-style-spec";
 import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, LngLatBoundsLike, MapLayerMouseEvent } from "maplibre-gl";
@@ -21,6 +21,14 @@ import { formatCost, formatPopulation } from "@/lib/format";
 import { tileCount } from "@/lib/tiles";
 import { baseStyle, intensityColor } from "./mapStyle";
 import styles from "./ExplorerMap.module.css";
+import {
+  explainStat,
+  explainVillage,
+  type Explanation,
+  type PanelContext,
+  type StatKey,
+  type VillageKey,
+} from "./explain";
 
 // Turbopack rewrites import.meta.url, so MapLibre can't find its worker on its own.
 // `npm run dev`/`build` copy it into public/vendor (see package.json).
@@ -34,8 +42,8 @@ const CHILD_LABEL = ["countries", "regions", "villages"] as const;
 const SCAN_MIN_ZOOM = 8;
 
 type Hover =
-  | { x: number; y: number; flip: boolean; kind: "area"; props: AreaProperties }
-  | { x: number; y: number; flip: boolean; kind: "clinic"; name: string }
+  | { x: number; y: number; flip: boolean; flipY: boolean; kind: "area"; props: AreaProperties }
+  | { x: number; y: number; flip: boolean; flipY: boolean; kind: "clinic"; name: string }
   | null;
 
 type ScanState =
@@ -75,13 +83,18 @@ function markerPoints(level: number, fc: AreaCollection, scans: ScanMeta[]) {
   if (level === 0) {
     return featureCollection(
       scans.map((s) =>
-        point([(s.bbox.west + s.bbox.east) / 2, (s.bbox.south + s.bbox.north) / 2], { areaId: s.countryId }),
+        point([(s.bbox.west + s.bbox.east) / 2, (s.bbox.south + s.bbox.north) / 2], {
+          areaId: s.countryId,
+          halo: 14,
+          core: 3.5,
+        }),
       ),
     );
   }
   if (level === 1 && fc.features[0]?.properties.data_source !== "detected") return EMPTY;
+  const size = level === 1 ? { halo: 16, core: 4.5 } : {};
   return featureCollection(
-    fc.features.map((f) => ({ ...pointOnFeature(f), properties: { areaId: f.properties.id } })),
+    fc.features.map((f) => ({ ...pointOnFeature(f), properties: { areaId: f.properties.id, ...size } })),
   );
 }
 
@@ -110,6 +123,10 @@ export default function ExplorerMap() {
   const [scan, setScan] = useState<ScanState>({ status: "idle" });
   const [now, setNow] = useState(() => Date.now());
 
+  /** Which number's explanation is open, e.g. "stat:cost" or "village:reach". */
+  const [explain, setExplain] = useState<string | null>(null);
+  const toggleExplain = useCallback((key: string) => setExplain((k) => (k === key ? null : key)), []);
+
   const level = trail.length;
   const trailRef = useRef(trail);
   useEffect(() => {
@@ -118,6 +135,7 @@ export default function ExplorerMap() {
 
   const drillInto = useCallback((feature: AreaFeature) => {
     setHover(null);
+    setExplain(null);
     if (trailRef.current.length < 2) {
       setSelected(null);
       setTrail((t) => [...t, feature]);
@@ -126,6 +144,7 @@ export default function ExplorerMap() {
 
   const goTo = useCallback((depth: number) => {
     setSelected(null);
+    setExplain(null);
     setTrail((t) => t.slice(0, depth));
   }, []);
 
@@ -194,7 +213,7 @@ export default function ExplorerMap() {
         source: "routes",
         filter: ["==", ["get", "kind"], "road"],
         layout: { "line-join": "round", "line-cap": "round" },
-        paint: { "line-color": tokens.color.constellation, "line-width": 1.2, "line-opacity": 0.55 },
+        paint: { "line-color": tokens.color.constellation, "line-width": 1.2, "line-opacity": 0.35 },
       });
       map.addLayer({
         id: "routes-offroad",
@@ -204,7 +223,7 @@ export default function ExplorerMap() {
         paint: {
           "line-color": tokens.color.constellation,
           "line-width": 1.2,
-          "line-opacity": 0.55,
+          "line-opacity": 0.35,
           "line-dasharray": [2, 2],
         },
       });
@@ -220,13 +239,19 @@ export default function ExplorerMap() {
         id: "dots-halo",
         type: "circle",
         source: "dots",
-        paint: { "circle-radius": 9, "circle-color": tokens.color.accent, "circle-opacity": 0.18, "circle-blur": 1 },
+        // Larger on the world and country views, where a marker is the only sign of a ~4 km scan.
+        paint: {
+          "circle-radius": ["coalesce", ["get", "halo"], 9],
+          "circle-color": tokens.color.accent,
+          "circle-opacity": 0.3,
+          "circle-blur": 1,
+        },
       });
       map.addLayer({
         id: "dots-core",
         type: "circle",
         source: "dots",
-        paint: { "circle-radius": 2.5, "circle-color": tokens.color.accent },
+        paint: { "circle-radius": ["coalesce", ["get", "core"], 2.5], "circle-color": tokens.color.accent },
       });
       // Invisible, bigger target so tiny markers are easy to hover and click.
       map.addLayer({
@@ -259,14 +284,18 @@ export default function ExplorerMap() {
         if (id) map.setFeatureState({ source: "areas", id }, { hover: true });
       };
       const findArea = (id: unknown) => collectionRef.current?.features.find((f) => f.properties.id === String(id));
-      const flipAt = (e: MapLayerMouseEvent) => e.point.x > map.getContainer().clientWidth - 240;
+      // Keep the tooltip inside the map: open left near the right edge, upward near the bottom.
+      const flipAt = (e: MapLayerMouseEvent) => ({
+        flip: e.point.x > map.getContainer().clientWidth - 240,
+        flipY: e.point.y > map.getContainer().clientHeight - 240,
+      });
 
       const hoverArea = (e: MapLayerMouseEvent, id: unknown) => {
         const feature = findArea(id);
         if (!feature) return;
         map.getCanvas().style.cursor = "pointer";
         setHoverState(feature.properties.id);
-        setHover({ x: e.point.x, y: e.point.y, flip: flipAt(e), kind: "area", props: feature.properties });
+        setHover({ x: e.point.x, y: e.point.y, ...flipAt(e), kind: "area", props: feature.properties });
       };
       const leave = () => {
         map.getCanvas().style.cursor = "";
@@ -279,7 +308,7 @@ export default function ExplorerMap() {
       map.on("mousemove", "clinics-core", (e) => {
         const name = e.features?.[0]?.properties.name;
         map.getCanvas().style.cursor = "default";
-        setHover({ x: e.point.x, y: e.point.y, flip: flipAt(e), kind: "clinic", name: String(name) });
+        setHover({ x: e.point.x, y: e.point.y, ...flipAt(e), kind: "clinic", name: String(name) });
       });
       map.on("mouseleave", "areas-fill", leave);
       map.on("mouseleave", "dots-hit", leave);
@@ -308,6 +337,11 @@ export default function ExplorerMap() {
     return () => {
       map.remove();
       mapRef.current = null;
+      // A recreated map (e.g. after Fast Refresh) needs its data and camera set again.
+      cameraKeyRef.current = null;
+      hoverIdRef.current = null;
+      setHover(null);
+      setReady(false);
     };
   }, [drillInto]);
 
@@ -479,14 +513,16 @@ export default function ExplorerMap() {
 
   const hint =
     level === 0
-      ? "Hover a country for estimates. Gold dots are real scans. Click to zoom in."
+      ? "Hover a country for estimates. Gold dots are real scans. Click any number to see how it was worked out."
       : level === 1
         ? detectedHere
           ? "Each box is a satellite scan. Click one to see what it found."
           : "Click a region to see its villages."
         : detectedHere
-          ? "Click a settlement for its route and certainty."
+          ? "Click a settlement for its route and certainty. Click any number to see how it was worked out."
           : "Click a village for details.";
+
+  const panelContext: PanelContext = { level, parent: parentProps, collection, scans };
 
   const canScan = viewTiles !== null && viewTiles <= baselineConfig.maxScanTiles;
 
@@ -515,46 +551,59 @@ export default function ExplorerMap() {
           {parentProps && <SourceBadge props={parentProps} />}
         </div>
 
-        <dl className={styles.stats}>
-          <div>
-            <dt>Est. population</dt>
-            <dd>{formatPopulation(totals.population)}</dd>
-          </div>
-          <div>
-            <dt>Est. cost</dt>
-            <dd>{formatCost(totals.cost)}</dd>
-          </div>
-          <div>
-            <dt>{CHILD_LABEL[level]}</dt>
-            <dd>{totals.count}</dd>
-          </div>
-        </dl>
+        <div className={styles.stats}>
+          {(
+            [
+              ["population", "Est. population", formatPopulation(totals.population)],
+              ["cost", "Est. cost", formatCost(totals.cost)],
+              ["count", CHILD_LABEL[level], String(totals.count)],
+            ] as const
+          ).map(([key, label, value]) => (
+            <button
+              key={key}
+              className={styles.stat}
+              aria-expanded={explain === `stat:${key}`}
+              onClick={() => toggleExplain(`stat:${key}`)}
+            >
+              <span className={styles.statLabel}>{label}</span>
+              <span className={styles.statValue}>{value}</span>
+            </button>
+          ))}
+        </div>
+        {explain?.startsWith("stat:") && explain !== "stat:detected" && (
+          <ExplainBox explanation={explainStat(explain.slice(5) as StatKey, panelContext)} />
+        )}
 
-        {level === 0 && (
-          <p className={styles.detected}>
-            <strong>Real detections</strong>
-            {scans.length
-              ? `${detectedCountries} countries · ${scans.length} scan areas · ${detectedVillages} settlements`
-              : "No scans yet. Totals use the World Bank baseline."}
-          </p>
+        {(level === 0 || detectedHere) && (
+          <button
+            className={styles.detected}
+            aria-expanded={explain === "stat:detected"}
+            onClick={() => toggleExplain("stat:detected")}
+          >
+            {level === 0 ? (
+              <>
+                <strong>Real detections</strong>
+                {scans.length
+                  ? `${detectedCountries} countries · ${scans.length} scan areas · ${detectedVillages} settlements`
+                  : "No scans yet. Totals use the World Bank baseline."}
+              </>
+            ) : (
+              <>
+                <strong>Detected here</strong>
+                {formatPopulation(sum(collection, "estimated_population"))} people ·{" "}
+                {formatCost(sum(collection, "estimated_cost"))}
+                {level === 2 && ` · ${osmConfirmed} of ${totals.count} confirmed by OSM`}
+              </>
+            )}
+          </button>
         )}
-        {detectedHere && (
-          <p className={styles.detected}>
-            <strong>Detected here</strong>
-            {formatPopulation(sum(collection, "estimated_population"))} people ·{" "}
-            {formatCost(sum(collection, "estimated_cost"))}
-            {level === 2 && ` · ${osmConfirmed} of ${totals.count} confirmed by OSM`}
-          </p>
-        )}
+        {explain === "stat:detected" && <ExplainBox explanation={explainStat("detected", panelContext)} />}
 
         {selected && (
           <div className={styles.selected}>
             <p className="eyebrow">Selected</p>
             <strong>{selected.name}</strong>
-            <span>
-              {formatPopulation(selected.estimated_population)} people · {formatCost(selected.estimated_cost)}
-            </span>
-            {selected.certainty !== undefined && <VillageDetails props={selected} />}
+            <VillageDetails props={selected} open={explain} onToggle={toggleExplain} />
           </div>
         )}
 
@@ -623,6 +672,7 @@ export default function ExplorerMap() {
           className={styles.tooltip}
           style={{ left: hover.x, top: hover.y }}
           data-flip={hover.flip || undefined}
+          data-flip-y={hover.flipY || undefined}
         >
           {hover.kind === "clinic" ? (
             <>
@@ -643,7 +693,7 @@ export default function ExplorerMap() {
                   <dd>{formatCost(hover.props.estimated_cost)}</dd>
                 </div>
               </dl>
-              {hover.props.certainty !== undefined && <VillageDetails props={hover.props} />}
+              {hover.props.certainty !== undefined && <VillageSummary props={hover.props} />}
             </>
           )}
         </div>
@@ -661,8 +711,8 @@ function SourceBadge({ props }: { props: AreaProperties }) {
   );
 }
 
-/** Certainty, reach and clinic for a detected village. */
-function VillageDetails({ props }: { props: AreaProperties }) {
+/** Certainty, reach and clinic for a detected village, read-only (tooltip). */
+function VillageSummary({ props }: { props: AreaProperties }) {
   return (
     <dl className={styles.details}>
       <div>
@@ -685,5 +735,76 @@ function VillageDetails({ props }: { props: AreaProperties }) {
         <dd>{props.clinic_name ?? "none in range"}</dd>
       </div>
     </dl>
+  );
+}
+
+/** Every number for the selected village; each row opens an explanation of itself. */
+function VillageDetails({
+  props,
+  open,
+  onToggle,
+}: {
+  props: AreaProperties;
+  open: string | null;
+  onToggle: (key: string) => void;
+}) {
+  const rows: [VillageKey, string, ReactNode][] = [
+    ["population", "Population", formatPopulation(props.estimated_population)],
+    ["cost", "Cost", formatCost(props.estimated_cost)],
+  ];
+  if (props.certainty !== undefined) {
+    rows.push(
+      [
+        "certainty",
+        "Certainty",
+        <>
+          {props.certainty}
+          <small>{props.detection === "osm" ? " · OSM confirmed" : " · satellite only"}</small>
+        </>,
+      ],
+      ["reach", "Reach", props.reach_label ? `${props.reach_label} · ${props.reach_difficulty}/100` : "–"],
+      ["clinic", "Clinic", props.clinic_name ?? "none in range"],
+    );
+  }
+  return (
+    <div className={styles.details}>
+      {rows.map(([key, label, value]) => (
+        <div key={key}>
+          <button
+            className={styles.detailRow}
+            aria-expanded={open === `village:${key}`}
+            onClick={() => onToggle(`village:${key}`)}
+          >
+            <span>{label}</span>
+            <span>{value}</span>
+          </button>
+          {open === `village:${key}` && <ExplainBox explanation={explainVillage(key, props)} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ExplainBox({ explanation }: { explanation: Explanation }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // The panel scrolls; bring a freshly opened explanation into view.
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, []);
+  return (
+    <div ref={ref} className={styles.explain} role="note">
+      <p>{explanation.summary}</p>
+      {explanation.rows && (
+        <dl>
+          {explanation.rows.map((row) => (
+            <div key={row.label}>
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {explanation.note && <small>{explanation.note}</small>}
+    </div>
   );
 }

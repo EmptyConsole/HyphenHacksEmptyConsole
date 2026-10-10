@@ -32,6 +32,34 @@ export interface AreaProperties {
   /** USD to get a team there, part of `estimated_cost`. */
   reach_cost?: number;
   clinic_name?: string | null;
+
+  // Explanation inputs. Present when known; older scans leave some out.
+  /** Vaccination part of `estimated_cost`. */
+  healthcare_cost?: number;
+  /** Roof clusters counted inside the polygon. */
+  buildings?: number;
+  area_m2?: number;
+  /** 1 for a circle, near 0 for a thin strip. */
+  compactness?: number;
+  /** Share of the polygon that passed the roof-color test. */
+  roof_share?: number;
+  /** Whole clinic → village trip, meters. */
+  travel_m?: number;
+  /** Off-road gap at the village end, meters. */
+  offroad_m?: number;
+  /** Tracks, unpaved roads and off-road stretches, meters. */
+  slow_m?: number;
+
+  // Countries only.
+  /** World Bank rural population, or an area-based estimate when the World Bank has none. */
+  baseline_rural?: number;
+  baseline_year?: number;
+  baseline_source?: "world_bank" | "area_estimate";
+  /** USD per person used for `estimated_cost`. */
+  cost_per_person?: number;
+  cost_per_person_source?: "own_scans" | "all_scans" | "default";
+  /** Scans behind `cost_per_person`. */
+  cost_scan_count?: number;
 }
 
 export type AreaFeature = Feature<Polygon | MultiPolygon, AreaProperties>;
@@ -69,10 +97,24 @@ export interface ScanMeta {
   bbox: { south: number; west: number; north: number; east: number };
   createdAt: string;
   origin: "batch" | "live";
+  /** Clinic search radius the detector used. Older scans used 13 km. */
+  clinicRangeKm?: number;
+  /** Set when the scan was re-run in place. */
+  updatedAt?: string;
   villages: number;
   population: number;
   costUsd: number;
   osmMatched: number;
+}
+
+/** Totals over every saved scan's meta. */
+export interface ScanSummary {
+  scans: number;
+  countries: number;
+  settlements: number;
+  osmMatched: number;
+  population: number;
+  costUsd: number;
 }
 
 export interface ScanRequest {
