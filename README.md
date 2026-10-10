@@ -290,7 +290,19 @@ Values in between are linear. A hovered or selected settlement goes to 0.85 what
 
 **Outlines** show where a number came from. Detected areas get a solid line, and modeled ones a faint line.
 
-**Routes.** The scan view draws either the team tour or each settlement's clinic route, never both, because together they are unreadable. A clinic route that follows roads is a solid line. A two-point route is the straight off-road fallback, and it is dashed so nobody reads it as a road. Hovering or selecting a settlement highlights its own route.
+**Routes.** The scan view has a toggle between **Team tour** and **Clinic routes**. Only one is drawn at a time, because together they are unreadable.
+
+| | Clinic routes | Team tour |
+|---|---------------|-----------|
+| Question it answers | How would I reach this one settlement? | How would one team cover this whole box in one trip? |
+| What is drawn | One trip per settlement, from its own cheapest of three nearby clinics ([step 6](#6-price-the-trip-from-a-clinic)) | One loop: clinic → every stop → clinic ([step 8](#8-plan-one-team-tour)) |
+| Start | Can differ per settlement | One depot, the clinic most settlements already route from |
+| Settlements included | All of them | Certainty 30 or more |
+| Cost shown | Folded into each settlement's estimated cost, one way | "Cheapest team tour", travel only |
+
+In the clinic view, a route that follows roads is a solid line. A two-point route is the straight off-road fallback, and it is dashed so nobody reads it as a road. Hovering or selecting a settlement highlights its own route. Clinics are drawn as white dots with a blue ring.
+
+In the tour view, the loop is one amber line, and each visited settlement records its stop number.
 
 **Markers.** A 4 km scan is invisible from orbit, so scan boxes and small settlements also get a dot. On the world and country views, a scan's dot is colored by what it found:
 
@@ -370,6 +382,23 @@ The formulas and the constants they use are in [Algorithms](#algorithms), steps 
 - **One country:** World Bank rural population × 56% without health coverage × the dollars per person observed in scans.
 
 Hestia's $10 is spread over everyone in a settlement, so it is a planning number for a place, and it is separate from UNICEF's per-child cost of fully vaccinating a child. The road rates ($1.20–$8 per km) are assumptions, and each scan keeps the inputs (building count, area, compactness, roof share, off-road meters) so a map can show how a number was built.
+
+### Reading a scan's numbers
+
+A scan box shows two dollar figures that measure different things. **Est. cost** is the whole bill for every settlement in the box. **Cheapest team tour** is only the travel for one team's loop.
+
+Example from one Nigerian scan (grid cell 151-95, 30 settlements, 835 people):
+
+| Figure | How it is built | Amount |
+|--------|-----------------|--------|
+| Vaccination | 835 people × $10 + 30 stops × $100 | $11,350 |
+| Clinic trips | Each settlement's own one-way trip from its cheapest clinic, added up | $2,227 |
+| **Est. cost** | Vaccination + clinic trips | **$13,577** |
+| **Cheapest team tour** | One loop from Halimat clinic through 22 stops and back, 54.2 km ($52 road + $172 off-road) | **$224** |
+
+The tour skips the 8 settlements below certainty 30. Separate round trips to those same 22 stops would cost about $3,212. Sharing one drive brings that down to $224.
+
+Est. cost prices every settlement as its own trip, so it overstates travel when a team can cover the box in one loop. The tour figure is the more realistic travel cost for planning a campaign. The vaccination part is the same either way.
 
 ---
 
