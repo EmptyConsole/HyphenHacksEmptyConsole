@@ -4,5 +4,5 @@
 export const problemContent = {
   title: "Problem",
   subtitle:
-    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+    "56% of people living in rural areas do not have access to vaccines.",
 };

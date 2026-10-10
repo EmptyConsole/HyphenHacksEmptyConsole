@@ -13,13 +13,13 @@ export const homeContent = {
   map: {
     eyebrow: "The map",
     title: "Hestia Map",
-    lead: "We analyze real world data to deliver a comprehensive view of healthcare access. Check out impact for more details. \n Hover a country for estimates, click to zoom into regions, then villages.",
+    lead: "We analyze real world data to deliver a comprehensive view of healthcare access. Check out our solution for more details. \n Hover a country for estimates, click to zoom into regions, then villages.",
   },
 };
 
 export const navTabs = [
   { label: "Home", href: "/" },
   { label: "Problem", href: "/problem" },
-  { label: "Impact", href: "/impact" },
+  { label: "Solution", href: "/solution" },
   { label: "Algorithm", href: "/algorithm" },
 ];
