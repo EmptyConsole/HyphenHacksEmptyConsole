@@ -133,7 +133,6 @@ export default function DonateView() {
             </article>
           ))}
         </div>
-        <HelpScanPrompt message={donateContent.scanNeed} />
       </section>
 
       <section className={styles.section} aria-labelledby="why-donate">
@@ -148,7 +147,6 @@ export default function DonateView() {
             </article>
           ))}
         </div>
-        <HelpScanPrompt message={donateContent.scanWhy} />
       </section>
 
       <section className={styles.section} aria-labelledby="where-it-goes">
@@ -165,7 +163,6 @@ export default function DonateView() {
             </article>
           ))}
         </div>
-        <HelpScanPrompt message={donateContent.scanWhere} />
       </section>
 
       <section id="choose" className={styles.section} aria-labelledby="choose-title">
@@ -351,7 +348,6 @@ export default function DonateView() {
             </table>
           </div>
         )}
-        <HelpScanPrompt message={donateContent.scanGovernments} />
       </section>
 
       <section className={styles.section} aria-labelledby="sources-title">
