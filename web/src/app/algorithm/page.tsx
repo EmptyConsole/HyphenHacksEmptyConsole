@@ -1,5 +1,5 @@
-import ComingSoon from "@/components/ComingSoon";
+import ContentPage from "@/components/content/ContentPage";
 
 export default function AlgorithmPage() {
-  return <ComingSoon title="Algorithm" />;
+  return <ContentPage title="Algorithm" />;
 }

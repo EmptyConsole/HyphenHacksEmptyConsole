@@ -1,5 +1,5 @@
-import ComingSoon from "@/components/ComingSoon";
+import ContentPage from "@/components/content/ContentPage";
 
 export default function ProblemPage() {
-  return <ComingSoon title="Problem" />;
+  return <ContentPage title="Problem" />;
 }

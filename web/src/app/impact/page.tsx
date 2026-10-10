@@ -1,5 +1,5 @@
-import ComingSoon from "@/components/ComingSoon";
+import ContentPage from "@/components/content/ContentPage";
 
 export default function ImpactPage() {
-  return <ComingSoon title="Impact" />;
+  return <ContentPage title="Impact" />;
 }
