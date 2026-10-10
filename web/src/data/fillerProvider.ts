@@ -5,7 +5,14 @@ import { unwrapAntimeridian } from "@/lib/antimeridian";
 import { hashString, mulberry32, randBetween } from "@/lib/rng";
 import { subdivide } from "@/lib/subdivide";
 import { fillerConfig as cfg } from "./fillerConfig";
-import type { AreaCollection, AreaFeature } from "./types";
+import type {
+  AreaCollection,
+  AreaFeature,
+  ClinicCollection,
+  MapDataProvider,
+  RouteCollection,
+  VillageLayer,
+} from "./types";
 
 /**
  * Placeholder data: real country borders (Natural Earth via world-atlas),
@@ -88,3 +95,38 @@ export function fillerCountries(): Promise<AreaCollection> {
     });
   return countriesCache;
 }
+
+const childCache = new Map<string, AreaCollection>();
+
+function cachedChildren(parent: AreaFeature) {
+  const key = parent.properties.id;
+  if (!childCache.has(key)) childCache.set(key, fillerChildren(parent));
+  return childCache.get(key)!;
+}
+
+const emptyRoutes: RouteCollection = { type: "FeatureCollection", features: [] };
+const emptyClinics: ClinicCollection = { type: "FeatureCollection", features: [] };
+
+/** Placeholder provider. Country numbers stay modeled until a scan exists. */
+export const fillerProvider: MapDataProvider = {
+  getCountries: fillerCountries,
+  getRegions(country) {
+    return Promise.resolve(cachedChildren(country));
+  },
+  getVillages(region): Promise<VillageLayer> {
+    return Promise.resolve({
+      areas: cachedChildren(region),
+      routes: emptyRoutes,
+      clinics: emptyClinics,
+    });
+  },
+  getScans() {
+    return [];
+  },
+  async refresh() {
+    return false;
+  },
+  async scanArea() {
+    throw new Error("Placeholder data cannot run a scan.");
+  },
+};
