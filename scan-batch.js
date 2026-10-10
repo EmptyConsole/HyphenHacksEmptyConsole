@@ -6,6 +6,8 @@
 //   node scan-batch.js --hours 3 --grid 566     # cover one country box by box (566 = Nigeria)
 //   node scan-batch.js --hours 3 --grid 566 --shard 2/4   # this computer takes share 2 of 4
 //   node scan-batch.js --rescan 566-mv2suz0a              # re-run saved scans by id, then stop
+//   node scan-batch.js --hours 3 --grid 566 --new-only    # only new grid cells, no re-runs
+//   node scan-batch.js --hours 3 --grid 566 --rescan-old  # only re-run outdated scans, then stop
 //
 // Box picking: a random point inside the country's border, then a random OSM
 // village or hamlet near that point. The box is centered on that village, so there
@@ -44,7 +46,8 @@ const CLINIC_RANGE_KM = 40;
 // Bump when the detector's team-tour output changes; grid-country scans below it are re-run.
 // 2: settlements need at least one roof cluster, so tours and totals changed.
 // 3: red roofs need a sharp edge, roof clusters must be house-sized, stringy blobs dropped.
-const TOUR_VERSION = 3;
+// 4: those rules tightened, and teal metal roofs recognized.
+const TOUR_VERSION = 4;
 // Wait before retrying a box that failed because Overpass was busy.
 const BUSY_RETRY_MS = 45000;
 // Longest wait after failures in a row, before trying the next grid cell.
@@ -95,6 +98,8 @@ function readArgs(argv) {
   const hours = Number(value("--hours") ?? 3);
   const grid = value("--grid");
   const rescan = value("--rescan")?.split(",").filter(Boolean);
+  const newOnly = argv.includes("--new-only");
+  const rescanOld = argv.includes("--rescan-old");
   const shardMatch = /^(\d+)\/(\d+)$/.exec(value("--shard") ?? "1/1");
   const shard = shardMatch ? { index: Number(shardMatch[1]), count: Number(shardMatch[2]) } : null;
   if (
@@ -102,13 +107,17 @@ function readArgs(argv) {
     hours <= 0 ||
     (grid !== undefined && !/^\d+$/.test(grid)) ||
     !shard ||
+    (newOnly && rescanOld) ||
+    ((newOnly || rescanOld) && grid === undefined) ||
     shard.index < 1 ||
     shard.index > shard.count
   ) {
-    console.error("Usage: node scan-batch.js --hours 3 [--grid COUNTRY_ID] [--shard K/N]");
+    console.error(
+      "Usage: node scan-batch.js --hours 3 [--grid COUNTRY_ID [--new-only | --rescan-old]] [--shard K/N]"
+    );
     process.exit(1);
   }
-  return { hours, grid, shard, rescan };
+  return { hours, grid, shard, rescan, newOnly, rescanOld };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -518,7 +527,7 @@ async function rescanOutdated(deadline, onlyCountryId, shard = { index: 1, count
 }
 
 async function main() {
-  const { hours, grid, shard, rescan } = readArgs(process.argv);
+  const { hours, grid, shard, rescan, newOnly, rescanOld } = readArgs(process.argv);
   const deadline = Date.now() + hours * 3600 * 1000;
   mkdirSync(OUT_DIR, { recursive: true });
 
@@ -532,7 +541,11 @@ async function main() {
     return;
   }
 
-  await rescanOutdated(deadline, grid, shard);
+  if (!newOnly) await rescanOutdated(deadline, grid, shard);
+  if (rescanOld) {
+    log("finished re-running outdated scans");
+    return;
+  }
 
   if (grid) {
     const saved = await scanGrid(grid, shapes, deadline, shard);

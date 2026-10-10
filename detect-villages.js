@@ -32,23 +32,23 @@ const MIN_PIXELS = 400;
 const MIN_ROOF_CLUSTERS = 1;
 // Red pixels count as roof only on a sharp edge. Red laterite soil and dirt roads are
 // as red as tile roofs, but they fade gradually; a roof has a crisp outline.
-const RED_ROOF_MIN_EDGE = 18;
+const RED_ROOF_MIN_EDGE = 22;
 // Painted or galvanized metal roofs often read teal at zoom 17: green and blue both well
 // above red and close to each other. Houses are only 4–6 px across, so they are all edge.
-const METAL_ROOF_MIN_EDGE = 12;
+const METAL_ROOF_MIN_EDGE = 15;
 // A roof cluster bigger than this is a patch of ground, not a house. ~360 px is ~500 m².
 const MAX_ROOF_CLUSTER_PX = 360;
 // Houses are rectangles, so a cluster should fill a fair share of its bounding box.
 // Soil fragments are ragged and fill little of theirs.
-const MIN_ROOF_FILL = 0.35;
+const MIN_ROOF_FILL = 0.4;
 // Average width of a cluster (pixels ÷ longest side). Crop-row lines and the bright rim
-// around a dark tree are 1–2 px wide; a house is 6–10 px across. 2.5 px is ~3 m.
-const MIN_ROOF_THICKNESS_PX = 2.5;
+// around a dark tree are 1–2 px wide; a house is 4–10 px across. 3 px is ~3.5 m.
+const MIN_ROOF_THICKNESS_PX = 3;
 // A house is at most a few times longer than it is wide. Longer is a field edge or track.
-const MAX_ROOF_ASPECT = 5;
+const MAX_ROOF_ASPECT = 4;
 // Below this compactness a blob is a stringy web of soil and tracks, not a village.
 // An OSM place still confirms it, but then people come from roofs only, not its size.
-const MIN_COMPACTNESS = 0.05;
+const MIN_COMPACTNESS = 0.06;
 // An OSM place this close to a polygon counts as the same settlement.
 const OSM_METERS = 150;
 // Douglas–Peucker tolerance in pixels. Drops stair-steps along a straight wall.
