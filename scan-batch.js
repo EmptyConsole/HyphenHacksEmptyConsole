@@ -3,11 +3,16 @@
 // results while the batch is still running.
 //
 //   node scan-batch.js --hours 3
+//   node scan-batch.js --hours 3 --grid 566     # cover one country box by box (566 = Nigeria)
 //
 // Box picking: a random point inside the country's border, then a random OSM
 // village or hamlet near that point. The box is centered on that village, so there
 // is always something to find, and unmapped neighbors show up as satellite hits.
 // Restarting the script continues toward the same per-country targets.
+//
+// Grid mode tiles one country with boxes and scans them in a fixed shuffled order, so
+// partial coverage is spread across the country. Each scan records its grid cell, and a
+// restart skips cells already done.
 
 import { spawn } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -70,14 +75,18 @@ const COUNTRIES = [
   { id: "404", name: "Kenya", boxes: 3 },
 ];
 
-function readHours(argv) {
-  const index = argv.indexOf("--hours");
-  const hours = index === -1 ? 3 : Number(argv[index + 1]);
-  if (!Number.isFinite(hours) || hours <= 0) {
-    console.error("Usage: node scan-batch.js --hours 3");
+function readArgs(argv) {
+  const value = (flag) => {
+    const index = argv.indexOf(flag);
+    return index === -1 ? undefined : argv[index + 1];
+  };
+  const hours = Number(value("--hours") ?? 3);
+  const grid = value("--grid");
+  if (!Number.isFinite(hours) || hours <= 0 || (grid !== undefined && !/^\d+$/.test(grid))) {
+    console.error("Usage: node scan-batch.js --hours 3 [--grid COUNTRY_ID]");
     process.exit(1);
   }
-  return hours;
+  return { hours, grid };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -279,13 +288,24 @@ async function scanOne(country, shapes) {
     log(`${country.name}: no OSM village found, skipping`);
     return false;
   }
-  const bbox = {
-    south: +(village.lat - HALF_DEG).toFixed(5),
-    west: +(village.lon - HALF_DEG).toFixed(5),
-    north: +(village.lat + HALF_DEG).toFixed(5),
-    east: +(village.lon + HALF_DEG).toFixed(5),
+  log(`${country.name}: scanning near ${village.name ?? "unnamed village"}`);
+  return scanBox(country, boxAround(village.lon, village.lat), {
+    label: village.name ? `Near ${village.name}` : null,
+  });
+}
+
+function boxAround(lon, lat) {
+  return {
+    south: +(lat - HALF_DEG).toFixed(5),
+    west: +(lon - HALF_DEG).toFixed(5),
+    north: +(lat + HALF_DEG).toFixed(5),
+    east: +(lon + HALF_DEG).toFixed(5),
   };
-  log(`${country.name}: scanning near ${village.name ?? "unnamed village"} ${JSON.stringify(bbox)}`);
+}
+
+// Run the detector on one box and save it. `extra` is merged into the meta file.
+async function scanBox(country, bbox, extra) {
+  log(`${country.name}: box ${JSON.stringify(bbox)}`);
   try {
     let { collection, stderr } = await runDetectorRetrying(country, bbox);
     // The detector carries on without clinics or roads when Overpass refuses those
@@ -300,11 +320,12 @@ async function scanOne(country, shapes) {
       id,
       countryId: country.id,
       countryName: country.name,
-      label: village.name ? `Near ${village.name}` : null,
+      label: null,
       bbox,
       createdAt: new Date().toISOString(),
       origin: "batch",
       clinicRangeKm: CLINIC_RANGE_KM,
+      ...extra,
       ...summarize(collection),
     };
     // Data file first, then meta: a meta file always points at a complete scan.
@@ -318,13 +339,77 @@ async function scanOne(country, shapes) {
   }
 }
 
+// Seeded so every run shuffles the grid the same way and restarts pick up in order.
+function mulberry32(seed) {
+  return () => {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Every box-sized cell whose center is inside the country, in a fixed shuffled order.
+function gridCells(countryId, geometry) {
+  const bounds = geometryBounds(geometry);
+  const step = HALF_DEG * 2;
+  const cells = [];
+  for (let row = 0; bounds.south + (row + 0.5) * step < bounds.north; row++) {
+    for (let col = 0; bounds.west + (col + 0.5) * step < bounds.east; col++) {
+      const lon = bounds.west + (col + 0.5) * step;
+      const lat = bounds.south + (row + 0.5) * step;
+      if (pointInGeometry(lon, lat, geometry)) cells.push({ id: `${row}-${col}`, lon, lat });
+    }
+  }
+  const rand = mulberry32(Number(countryId));
+  for (let i = cells.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [cells[i], cells[j]] = [cells[j], cells[i]];
+  }
+  return cells;
+}
+
+function doneGridCells(countryId) {
+  const done = new Set();
+  for (const file of readdirSync(OUT_DIR)) {
+    if (!file.endsWith(".meta.json")) continue;
+    const meta = JSON.parse(readFileSync(join(OUT_DIR, file), "utf8"));
+    if (meta.countryId === countryId && meta.gridCell) done.add(meta.gridCell);
+  }
+  return done;
+}
+
+async function scanGrid(countryId, shapes, deadline) {
+  const country = COUNTRIES.find((c) => c.id === countryId) ?? { id: countryId, name: countryId };
+  const geometry = shapes.get(countryId);
+  if (!geometry) throw new Error(`no country with id ${countryId}`);
+  const cells = gridCells(countryId, geometry);
+  const done = doneGridCells(countryId);
+  log(`${country.name}: ${cells.length} grid cells, ${done.size} already scanned`);
+  let saved = 0;
+  for (const cell of cells) {
+    if (Date.now() > deadline) break;
+    if (done.has(cell.id)) continue;
+    const ok = await scanBox(country, boxAround(cell.lon, cell.lat), {
+      label: `Grid cell ${cell.id}`,
+      gridCell: cell.id,
+    });
+    if (ok) saved += 1;
+    await sleep(PAUSE_MS);
+  }
+  log(`${country.name}: ${done.size + saved} of ${cells.length} grid cells scanned`);
+  return saved;
+}
+
 // Re-run saved scans made with an older, smaller clinic radius. Same id, box and label,
 // so the map updates in place.
-async function rescanOutdated(deadline) {
+async function rescanOutdated(deadline, onlyCountryId) {
   for (const file of readdirSync(OUT_DIR)) {
     if (!file.endsWith(".meta.json") || Date.now() > deadline) continue;
     const meta = JSON.parse(readFileSync(join(OUT_DIR, file), "utf8"));
     if ((meta.clinicRangeKm ?? CLINIC_RANGE_KM) >= CLINIC_RANGE_KM) continue;
+    if (onlyCountryId && meta.countryId !== onlyCountryId) continue;
     log(`${meta.countryName}: re-running ${meta.id} with the ${CLINIC_RANGE_KM} km clinic radius`);
     try {
       let { collection, stderr } = await runDetectorRetrying({ name: meta.countryName }, meta.bbox);
@@ -350,7 +435,7 @@ async function rescanOutdated(deadline) {
 }
 
 async function main() {
-  const hours = readHours(process.argv);
+  const { hours, grid } = readArgs(process.argv);
   const deadline = Date.now() + hours * 3600 * 1000;
   mkdirSync(OUT_DIR, { recursive: true });
 
@@ -359,7 +444,13 @@ async function main() {
     feature(topo, topo.objects.countries).features.map((f) => [String(f.id), f.geometry])
   );
 
-  await rescanOutdated(deadline);
+  await rescanOutdated(deadline, grid);
+
+  if (grid) {
+    const saved = await scanGrid(grid, shapes, deadline);
+    log(`finished, ${saved} boxes saved`);
+    return;
+  }
 
   let done = 0;
   for (let pass = 1; Date.now() < deadline; pass++) {
