@@ -46,6 +46,12 @@ import {
 } from "./mapStyle";
 import styles from "./ExplorerMap.module.css";
 import {
+  describeExport,
+  downloadView,
+  type ExportFormat,
+  type ExportView,
+} from "./exportData";
+import {
   accessLabel,
   confidenceLabel,
   confidenceLevel,
@@ -889,11 +895,27 @@ export default function ExplorerMap() {
   const hideCountryCost = level === 1;
   const inScan = level === 2 && parentProps?.data_source === "detected";
   const tourSummary = extras?.tour?.summary ?? null;
-  const costLabel = !inScan
-    ? formatCost(totals.cost)
+  const costUsd = !inScan
+    ? totals.cost
     : tourSummary
-      ? formatCost(tourSummary.costUsd + tourSummary.vaccinationUsd)
-      : "–";
+      ? tourSummary.costUsd + tourSummary.vaccinationUsd
+      : null;
+  const costLabel = costUsd === null ? "–" : formatCost(costUsd);
+  const countLabel = detectedHere ? DETECTED_CHILD_LABEL[level] : CHILD_LABEL[level];
+
+  const exportView: ExportView | null =
+    collection && !loading
+      ? {
+          level,
+          path: trail.map((f) => f.properties.name),
+          parent: parentProps,
+          collection,
+          layer: extras,
+          scans,
+          summary: { population: totals.population, costUsd, count: totals.count, countLabel },
+          selected,
+        }
+      : null;
 
   const panelContext: PanelContext = {
     level,
@@ -967,7 +989,7 @@ export default function ExplorerMap() {
                 [
                   ["population", "People", formatPopulation(totals.population)],
                   ["cost", "Cost", costLabel],
-                  ["count", detectedHere ? DETECTED_CHILD_LABEL[level] : CHILD_LABEL[level], String(totals.count)],
+                  ["count", countLabel, String(totals.count)],
                 ] as const
               )
                 .filter(([key]) => key !== "cost" || !hideCountryCost)
@@ -1026,6 +1048,8 @@ export default function ExplorerMap() {
             )}
           </>
         )}
+
+        <DownloadBox view={exportView} />
 
         <div className={styles.legendBox}>
           <button
@@ -1285,6 +1309,66 @@ function SettlementCard({
             </button>
             {explainRow(key)}
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const DOWNLOAD_FORMATS: { format: ExportFormat; label: string; detail: string }[] = [
+  { format: "geojson", label: "GeoJSON", detail: "Shapes & routes" },
+  { format: "csv", label: "CSV", detail: "Table of costs" },
+];
+
+/** Downloads whatever the panel shows: countries, scans, settlements, or one settlement. */
+function DownloadBox({ view }: { view: ExportView | null }) {
+  const [saved, setSaved] = useState<ExportFormat | null>(null);
+  useEffect(() => {
+    if (!saved) return;
+    const timer = setTimeout(() => setSaved(null), 1600);
+    return () => clearTimeout(timer);
+  }, [saved]);
+
+  const download = (format: ExportFormat) => {
+    if (!view) return;
+    downloadView(view, format);
+    setSaved(format);
+  };
+
+  return (
+    <div className={styles.download}>
+      <div className={styles.downloadHead}>
+        <span className={styles.downloadIcon} aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14">
+            <path
+              d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M2.5 13.5h11"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+        <div>
+          <strong>{view?.selected ? "Download settlement" : "Download data"}</strong>
+          <span>{view ? describeExport(view) : "Loading…"}</span>
+        </div>
+      </div>
+      <div className={styles.downloadButtons}>
+        {DOWNLOAD_FORMATS.map(({ format, label, detail }) => (
+          <button
+            key={format}
+            type="button"
+            className={styles.downloadButton}
+            data-primary={format === "geojson" || undefined}
+            data-saved={saved === format || undefined}
+            disabled={!view}
+            onClick={() => download(format)}
+          >
+            <span>{saved === format ? "Saved ✓" : label}</span>
+            <small>{detail}</small>
+          </button>
         ))}
       </div>
     </div>

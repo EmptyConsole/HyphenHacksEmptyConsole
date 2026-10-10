@@ -323,6 +323,132 @@
   border-top: none;
 }
 
+/* ---------- Download ---------- */
+
+.download {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background:
+    linear-gradient(135deg, var(--color-constellation-soft), transparent 70%),
+    var(--tint-1);
+}
+
+.downloadHead {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.downloadHead > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.downloadHead strong {
+  font-size: var(--text-small);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.downloadHead span:not(.downloadIcon) {
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  line-height: var(--leading-snug);
+}
+
+.downloadIcon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--color-constellation-soft);
+  color: var(--color-constellation);
+  box-shadow: inset 0 0 0 1px var(--tint-3);
+}
+
+.downloadButtons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.downloadButton {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  background: var(--tint-2);
+  text-align: left;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.downloadButton span {
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+
+.downloadButton small {
+  font-size: 0.6875rem;
+  color: var(--color-text-tertiary);
+}
+
+.downloadButton:hover:not(:disabled) {
+  background: var(--tint-4);
+  border-color: var(--color-constellation);
+}
+
+.downloadButton:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.downloadButton[data-primary] {
+  border-color: transparent;
+  background: var(--color-accent);
+}
+
+.downloadButton[data-primary] span,
+.downloadButton[data-primary] small {
+  color: var(--color-accent-contrast);
+}
+
+.downloadButton[data-primary] small {
+  opacity: 0.7;
+}
+
+.downloadButton[data-primary]:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--color-accent-hover);
+}
+
+.downloadButton[data-saved] {
+  border-color: var(--color-constellation);
+}
+
+.downloadButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.downloadButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 /* ---------- Map key ---------- */
 
 .legendBox {
