@@ -4,7 +4,7 @@ import { tokens } from "@/design/tokens";
 
 /**
  * OpenStreetMap raster tiles. Mind the OSM tile usage policy for production
- * (https://operations.osmfoundation.org/policies/tiles/) — swap this URL for a
+ * (https://operations.osmfoundation.org/policies/tiles/). Swap this URL for a
  * self-hosted or commercial OSM tile server when traffic grows.
  */
 export const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";

@@ -20,53 +20,53 @@ export type SourceId =
 export const sources: { id: SourceId; label: string; detail: string; href: string }[] = [
   {
     id: "hestia",
-    label: "Hestia — saved detector scans (this project)",
+    label: "Hestia: saved detector scans (this project)",
     detail:
       "Runs of detect-villages.js saved in web/data/scans. The scan numbers on this page are recomputed from them on every load.",
     href: "/#map",
   },
   {
     id: "unicef",
-    label: "UNICEF (August 2024) — Costs of Fully Vaccinating a Child: Countries Eligible for Gavi Vaccine Prices",
+    label: "UNICEF (August 2024): Costs of Fully Vaccinating a Child: Countries Eligible for Gavi Vaccine Prices",
     detail: "Table 4: US$73.15 per fully vaccinated child under 24 months, of which US$42.03 is delivery.",
     href: "https://www.unicef.org/media/161751/file/Standard%20costs%20of%20fully%20vaccinating%20a%20child_UNICEF_2024",
   },
   {
     id: "nature",
     label:
-      "Láng-Ritter, Keskinen & Tenkanen (2025) — Global gridded population datasets systematically underrepresent rural population",
+      "Láng-Ritter, Keskinen & Tenkanen (2025): Global gridded population datasets systematically underrepresent rural population",
     detail: "Nature Communications 16, March 2025.",
     href: "https://www.nature.com/articles/s41467-025-56906-7",
   },
   {
     id: "esri",
-    label: "Esri — World Imagery",
+    label: "Esri: World Imagery",
     detail: "One meter or better satellite and aerial imagery for most of the world's landmass. Esri, Vantor, Earthstar Geographics and the GIS User Community.",
     href: "https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9",
   },
   {
     id: "osm",
-    label: "OpenStreetMap contributors — places, health facilities and roads",
+    label: "OpenStreetMap contributors: places, health facilities and roads",
     detail: "Queried through the Overpass API. Data © OpenStreetMap contributors, available under the Open Database License.",
     href: "https://www.openstreetmap.org/copyright",
   },
   {
     id: "menzies",
     label:
-      "Menzies et al. (2017) — The cost determinants of routine infant immunization services: a meta-regression analysis of six country studies",
+      "Menzies et al. (2017): The cost determinants of routine infant immunization services: a meta-regression analysis of six country studies",
     detail: "BMC Medicine 15, 178. Sites in Benin, Ghana, Honduras, Moldova, Uganda and Zambia.",
     href: "https://link.springer.com/article/10.1186/s12916-017-0942-1",
   },
   {
     id: "worldBank",
-    label: "World Bank — Rural population (World Development Indicators)",
+    label: "World Bank: Rural population (World Development Indicators)",
     detail: "Indicator SP.RUR.TOTL, the starting point for every country on the map.",
     href: "https://data.worldbank.org/indicator/SP.RUR.TOTL",
   },
   {
     id: "ilo",
     label:
-      "International Labour Organization (2015) — Global evidence on inequities in rural health protection",
+      "International Labour Organization (2015): Global evidence on inequities in rural health protection",
     detail: "56% of rural people worldwide have no health coverage. Ed. X. Scheil-Adlung, ESS Document No. 47.",
     href: "https://www.ilo.org/sites/default/files/wcmsp5/groups/public/@ed_protect/@soc_sec/documents/publication/wcms_383890.pdf",
   },
@@ -84,19 +84,19 @@ export const solutionContent = {
   stats: (s: ScanSummary | null, fmt: { count: (n: number) => string; people: (n: number) => string }) =>
     [
       {
-        value: s ? fmt.count(s.settlements) : "—",
+        value: s ? fmt.count(s.settlements) : "–",
         label: "settlements traced from satellite images so far.",
         note: s ? `${s.scans} scan areas of about 4 × 4 km in ${s.countries} countries.` : undefined,
         source: "hestia",
       },
       {
-        value: s?.settlements ? `${Math.round((1 - s.osmMatched / s.settlements) * 100)}%` : "—",
+        value: s?.settlements ? `${Math.round((1 - s.osmMatched / s.settlements) * 100)}%` : "–",
         label: "of them have no OpenStreetMap place name within 150 m.",
         note: s ? `Only ${fmt.count(s.osmMatched)} matched a mapped village, hamlet or town.` : undefined,
         source: "hestia",
       },
       {
-        value: s ? fmt.people(s.population) : "—",
+        value: s ? fmt.people(s.population) : "–",
         label: "people estimated to live in them.",
         note: "Five people per roof, or per 250 m² where roofs merge.",
         source: "hestia",

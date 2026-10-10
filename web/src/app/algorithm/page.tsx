@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import AlgorithmView from "@/components/algorithm/AlgorithmView";
 
 export const metadata: Metadata = {
-  title: "Algorithm — Hestia",
+  title: "Algorithm · Hestia",
   description: "The seven steps Hestia uses to find villages and plan one route from the nearest clinic that reaches them all.",
 };
 

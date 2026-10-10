@@ -308,8 +308,8 @@ function isRoof(r, g, b, edge) {
 }
 
 // Two masks from the same pass:
-//   roof  — pixels that look like a roof, used later to count buildings
-//   built — roof pixels plus any high-contrast structure (walls, roof edges)
+//   roof  : pixels that look like a roof, used later to count buildings
+//   built : roof pixels plus any high-contrast structure (walls, roof edges)
 function classify(rgb, width, height) {
   const built = new Uint8Array(width * height);
   const roof = new Uint8Array(width * height);
@@ -714,9 +714,9 @@ function nearestPlace(ring, places) {
 }
 
 // Satellite-only certainty. Weights live here so they are easy to change.
-//   45% building count — 8 or more roof clusters fills this part
-//   30% compactness   — a circle is 1; 0.45 is a typical tight village
-//   25% roof share    — fraction of the blob that passed the roof-color test
+//   45% building count : 8 or more roof clusters fills this part
+//   30% compactness   : a circle is 1; 0.45 is a typical tight village
+//   25% roof share    : fraction of the blob that passed the roof-color test
 // The result is capped at 99. 100 is reserved for an OSM match.
 function satelliteCertainty(buildings, compactness, roofShare) {
   const buildingScore = Math.min(buildings / 8, 1);

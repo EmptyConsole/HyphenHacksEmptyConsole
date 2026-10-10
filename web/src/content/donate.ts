@@ -12,7 +12,7 @@ export const donateContent = {
   facts: [
     {
       value: "3.46 billion",
-      label: "people live in rural areas — 42% of everyone on Earth.",
+      label: "people live in rural areas, 42% of everyone on Earth.",
       note: "World Bank, 2025.",
     },
     {
@@ -100,17 +100,17 @@ export const donateContent = {
   ],
   sources: [
     {
-      label: "World Bank — Rural population (World Development Indicators)",
+      label: "World Bank: Rural population (World Development Indicators)",
       detail: "Indicator SP.RUR.TOTL, 2025. Country rows and the 3.46 billion total use this series.",
       href: "https://data.worldbank.org/indicator/SP.RUR.TOTL",
     },
     {
-      label: "International Labour Organization (2015) — Global evidence on inequities in rural health protection",
+      label: "International Labour Organization (2015): Global evidence on inequities in rural health protection",
       detail: "56% of rural people have no health coverage, across 174 countries.",
       href: "https://www.ilo.org/sites/default/files/wcmsp5/groups/public/@ed_protect/@soc_sec/documents/publication/wcms_383890.pdf",
     },
     {
-      label: "WHO and UNICEF (July 2026) — Estimates of National Immunization Coverage, 2025",
+      label: "WHO and UNICEF (July 2026): Estimates of National Immunization Coverage, 2025",
       detail: "13.5 million babies got no vaccine in their first year of life in 2025.",
       href: "https://www.who.int/news/item/15-07-2026-global-childhood-immunization-coverage-inches-forward-despite-conflict-and-hesitancy---unicef--who",
     },

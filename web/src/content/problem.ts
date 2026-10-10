@@ -1,6 +1,6 @@
 /**
  * Copy, chart data and sources for the Problem page. Edit the strings here.
- * Every number must point at an entry in `sources` — don't add one that can't.
+ * Every number must point at an entry in `sources`. Don't add one that can't.
  */
 
 export type SourceId = "worldBank" | "ilo" | "nature" | "wuenic";
@@ -8,27 +8,27 @@ export type SourceId = "worldBank" | "ilo" | "nature" | "wuenic";
 export const sources: { id: SourceId; label: string; detail: string; href: string }[] = [
   {
     id: "worldBank",
-    label: "World Bank — Rural population & urban population (World Development Indicators)",
+    label: "World Bank: Rural population & urban population (World Development Indicators)",
     detail: "Indicators SP.RUR.TOTL, SP.RUR.TOTL.ZS and SP.URB.TOTL, 1960–2025.",
     href: "https://data.worldbank.org/indicator/SP.RUR.TOTL",
   },
   {
     id: "ilo",
     label:
-      "International Labour Organization (2015) — Global evidence on inequities in rural health protection",
+      "International Labour Organization (2015): Global evidence on inequities in rural health protection",
     detail: "New data on rural deficits in health coverage for 174 countries. Ed. X. Scheil-Adlung, ESS Document No. 47.",
     href: "https://www.ilo.org/sites/default/files/wcmsp5/groups/public/@ed_protect/@soc_sec/documents/publication/wcms_383890.pdf",
   },
   {
     id: "nature",
     label:
-      "Láng-Ritter, Keskinen & Tenkanen (2025) — Global gridded population datasets systematically underrepresent rural population",
+      "Láng-Ritter, Keskinen & Tenkanen (2025): Global gridded population datasets systematically underrepresent rural population",
     detail: "Nature Communications 16, March 2025.",
     href: "https://www.nature.com/articles/s41467-025-56906-7",
   },
   {
     id: "wuenic",
-    label: "WHO & UNICEF (July 2026) — Estimates of National Immunization Coverage, 2025",
+    label: "WHO & UNICEF (July 2026): Estimates of National Immunization Coverage, 2025",
     detail: "Press release and the accompanying “Progress and challenges” report.",
     href: "https://www.who.int/news/item/15-07-2026-global-childhood-immunization-coverage-inches-forward-despite-conflict-and-hesitancy---unicef--who",
   },
@@ -43,12 +43,12 @@ export const problemContent = {
   stats: [
     {
       value: "3.46 billion",
-      label: "people live in rural areas — 42% of everyone on Earth.",
+      label: "people live in rural areas, 42% of everyone on Earth.",
       source: "worldBank",
     },
     {
       value: "1.9 billion",
-      label: "of them have no health coverage — no health system or insurance scheme they belong to.",
+      label: "of them have no health coverage: no health system or insurance scheme they belong to.",
       note: "56% of the rural population (ILO) × 3.46 billion.",
       source: "ilo",
     },
@@ -136,7 +136,7 @@ export const problemContent = {
     title: "You can't plan for people you can't see.",
     body: [
       "Governments and aid groups use census counts and population maps to decide where clinics go, how many vaccines to send, and which villages outreach teams visit.",
-      "A 2025 study checked five of the most widely used global population maps against independent headcounts from 307 rural areas. Every one of them under-counted rural people — the best by about half.",
+      "A 2025 study checked five of the most widely used global population maps against independent headcounts from 307 rural areas. Every one of them under-counted rural people, the best by about half.",
     ],
     undercountCaption: "How much each population map under-counted rural residents, on average (1975–2010)",
     undercount: [
@@ -158,7 +158,7 @@ export const problemContent = {
     eyebrow: "04 · Vaccines",
     title: "The children no vaccine reaches.",
     body: [
-      "Health workers call them “zero-dose” children: babies who never receive a single routine vaccine. In 2025 there were 13.5 million of them — still more than in 2019.",
+      "Health workers call them “zero-dose” children: babies who never receive a single routine vaccine. In 2025 there were 13.5 million of them, still more than in 2019.",
     ],
     facts: [
       { value: "13.5M", label: "zero-dose children in 2025" },

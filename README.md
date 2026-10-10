@@ -1,4 +1,4 @@
-# Hestia — Unmapped Village Discovery & Vaccination Routing
+# Hestia: Unmapped Village Discovery & Vaccination Routing
 
 Hestia finds rural settlements that are missing from official maps, estimates how many people live there, and plans the cheapest way for a vaccination team to reach them from the nearest clinic.
 
@@ -154,4 +154,4 @@ The ILO figure measures legal health coverage, not vaccine access specifically.
 
 ---
 
-**Hestia** — connecting rural settlements to the healthcare they need, one route at a time.
+**Hestia**: connecting rural settlements to the healthcare they need, one route at a time.

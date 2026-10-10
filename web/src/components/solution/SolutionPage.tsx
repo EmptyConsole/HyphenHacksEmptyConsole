@@ -123,11 +123,11 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
             <ul className={own.splitKey}>
               <li>
                 <span className={styles.keyUrban}>On OpenStreetMap</span>
-                <strong>{summary ? count(osmMatched) : "—"}</strong>
+                <strong>{summary ? count(osmMatched) : "–"}</strong>
               </li>
               <li>
                 <span className={own.keyMissing}>Satellite only</span>
-                <strong>{summary ? count(satelliteOnly) : "—"}</strong>
+                <strong>{summary ? count(satelliteOnly) : "–"}</strong>
               </li>
             </ul>
           </figure>

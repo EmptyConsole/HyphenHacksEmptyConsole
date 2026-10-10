@@ -1,6 +1,6 @@
 /*
  * Hestia design tokens. See DESIGN.md for rationale.
- * Mirrored in src/design/tokens.ts for WebGL/canvas code — keep both in sync.
+ * Mirrored in src/design/tokens.ts for WebGL/canvas code. Keep both in sync.
  */
 :root {
   /* ---------- Color: neutrals (deep space) ---------- */

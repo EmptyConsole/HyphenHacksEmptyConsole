@@ -190,7 +190,7 @@ export default function DonateView() {
                 value={choice === RECOMMENDED ? RECOMMENDED : governmentKey(selected)}
                 onChange={(event) => choose(event.target.value)}
               >
-                <option value={RECOMMENDED}>Recommended — {recommended?.name}</option>
+                <option value={RECOMMENDED}>Recommended: {recommended?.name}</option>
                 {governments.map((government) => (
                   <option key={governmentKey(government)} value={governmentKey(government)}>
                     {government.name}
