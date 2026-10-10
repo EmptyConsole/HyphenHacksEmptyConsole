@@ -14,7 +14,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 .brand {
@@ -31,6 +32,7 @@
   display: flex;
   gap: var(--space-1);
   min-width: 0;
+  margin-left: auto;
   overflow-x: auto;
   scrollbar-width: none;
   list-style: none;

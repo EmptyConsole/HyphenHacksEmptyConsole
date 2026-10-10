@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
+import HelpScanPrompt from "@/components/help/HelpScanPrompt";
 import { solutionContent, sources, type SourceId } from "@/content/solution";
 import type { ScanSummary } from "@/data/types";
 import { formatCost, formatPopulation } from "@/lib/format";
@@ -30,11 +31,13 @@ function Section({
   eyebrow,
   title,
   body,
+  scan,
   children,
 }: {
   eyebrow: string;
   title: string;
   body: { text: string; cite?: SourceId[] }[];
+  scan: string;
   children: ReactNode;
 }) {
   return (
@@ -51,6 +54,9 @@ function Section({
           ))}
         </header>
         <div className={styles.visuals}>{children}</div>
+      </div>
+      <div className="container">
+        <HelpScanPrompt message={scan} />
       </div>
     </section>
   );
@@ -268,6 +274,7 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
               {closing.secondaryCta.label}
             </Link>
           </div>
+          <HelpScanPrompt message={closing.scan} />
         </div>
       </section>
 

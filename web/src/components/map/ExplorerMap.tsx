@@ -36,8 +36,15 @@ import {
 } from "@/data";
 import { baselineConfig } from "@/data/baselineConfig";
 import { tokens } from "@/design/tokens";
+import {
+  clearAutoscanOnLoad,
+  consumeQueuedAutoScan,
+  onAutoScan,
+  peekAutoscanOnLoad,
+} from "@/lib/autoscan";
 import { formatCost, formatPopulation } from "@/lib/format";
 import { tileCount } from "@/lib/tiles";
+import { pickUnscannedArea, scanZoom, type UnscannedTarget } from "@/lib/unscanned";
 import {
   getBaseStyle,
   intensityColor,
@@ -186,6 +193,7 @@ type Hover =
 
 type ScanState =
   | { status: "idle" }
+  | { status: "seeking"; countryName: string | null }
   | { status: "running"; startedAt: number }
   | { status: "done"; scan: ScanMeta }
   | { status: "error"; message: string };
@@ -311,6 +319,10 @@ export default function ExplorerMap() {
   const hoverIdRef = useRef<string | null>(null);
   const cameraKeyRef = useRef<string | null>(null);
   const scansRef = useRef<ScanMeta[]>([]);
+  const pendingFly = useRef<UnscannedTarget | null>(null);
+  const flyToken = useRef(0);
+  const helpScanRef = useRef(false);
+  const scanViewRef = useRef<() => Promise<void>>(async () => {});
 
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -326,6 +338,10 @@ export default function ExplorerMap() {
   const [scans, setScans] = useState<ScanMeta[]>([]);
   const [viewTiles, setViewTiles] = useState<number | null>(null);
   const [scan, setScan] = useState<ScanState>({ status: "idle" });
+  const scanRef = useRef(scan);
+  useEffect(() => {
+    scanRef.current = scan;
+  }, [scan]);
   const [now, setNow] = useState(() => Date.now());
   const [mapTheme, setMapTheme] = useState<MapTheme>("dark");
   const [legendOpen, setLegendOpen] = useState(false);
@@ -363,6 +379,7 @@ export default function ExplorerMap() {
   const drillInto = useCallback((feature: AreaFeature) => {
     setHover(null);
     setExplain(null);
+    helpScanRef.current = false;
     if (trailRef.current.length < 2) {
       setSelected(null);
       // A marker and the area under it both fire on one click; add the area only once.
@@ -384,6 +401,55 @@ export default function ExplorerMap() {
     setSelected(null);
     setExplain(null);
     setTrail((t) => t.slice(0, depth));
+  }, []);
+
+  const flyToTarget = useCallback((target: UnscannedTarget) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const token = ++flyToken.current;
+    pendingFly.current = target;
+    helpScanRef.current = true;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const zoom = scanZoom(map.getContainer().clientWidth, map.getContainer().clientHeight);
+    const finish = () => {
+      if (flyToken.current !== token || !mapRef.current) return;
+      const center = map.getCenter();
+      const close =
+        Math.abs(center.lng - target.lng) < 0.25 &&
+        Math.abs(center.lat - target.lat) < 0.25 &&
+        map.getZoom() >= SCAN_MIN_ZOOM - 0.5;
+      if (!close) {
+        if (map.isMoving()) map.once("moveend", finish);
+        else if (flyToken.current === token) {
+          pendingFly.current = null;
+          helpScanRef.current = false;
+          setScan((current) => (current.status === "seeking" ? { status: "idle" } : current));
+        }
+        return;
+      }
+      const bounds = map.getBounds();
+      const tiles = tileCount(bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast());
+      if (tiles > baselineConfig.maxScanTiles && map.getZoom() < 16) {
+        map.zoomTo(Math.min(16, map.getZoom() + 0.45), { duration: reduce ? 0 : 350 });
+        map.once("moveend", finish);
+        return;
+      }
+      pendingFly.current = null;
+      if (tiles > baselineConfig.maxScanTiles) {
+        helpScanRef.current = false;
+        setScan({ status: "error", message: "That view is still too large to scan. Try again." });
+        return;
+      }
+      void scanViewRef.current();
+    };
+    map.flyTo({
+      center: [target.lng, target.lat],
+      zoom,
+      duration: reduce ? 0 : 2200,
+      essential: true,
+    });
+    if (reduce) finish();
+    else map.once("moveend", finish);
   }, []);
 
   // ---- Map setup (once) ----
@@ -727,6 +793,21 @@ export default function ExplorerMap() {
         layer?.tour?.line ?? EMPTY,
       );
 
+      if (level === 0 && peekAutoscanOnLoad() && !pendingFly.current) {
+        const target = pickUnscannedArea(fc.features, currentScans);
+        clearAutoscanOnLoad();
+        if (target) {
+          pendingFly.current = target;
+          helpScanRef.current = true;
+          setScan({ status: "seeking", countryName: target.countryName });
+        } else {
+          setScan({
+            status: "error",
+            message: "Couldn't find an unscanned area. Try again.",
+          });
+        }
+      }
+
       const cameraKey = trail.map((f) => f.properties.id).join("|");
       if (cameraKey !== cameraKeyRef.current) {
         cameraKeyRef.current = cameraKey;
@@ -739,7 +820,9 @@ export default function ExplorerMap() {
           parent?.properties.data_source === "detected" && level === 2
             ? 15
             : 12;
-        if (parent)
+        const queued = pendingFly.current;
+        if (queued && level === 0) flyToTarget(queued);
+        else if (parent)
           map.fitBounds(boundsOf(parent), { padding, duration: 1600, maxZoom });
         else map.flyTo({ ...WORLD_VIEW, duration: 1600 });
       }
@@ -749,7 +832,7 @@ export default function ExplorerMap() {
     return () => {
       cancelled = true;
     };
-  }, [ready, trail, level, dataVersion]);
+  }, [ready, trail, level, dataVersion, flyToTarget]);
 
   // ---- Team tour or clinic routes, never both: together they are unreadable ----
   // A scan with a team tour shows only the tour; older scans fall back to clinic routes.
@@ -841,9 +924,55 @@ export default function ExplorerMap() {
       setScan({ status: "done", scan: result });
       setDataVersion((v) => v + 1);
     } catch (error) {
+      helpScanRef.current = false;
       setScan({ status: "error", message: (error as Error).message });
     }
   }, []);
+  useEffect(() => {
+    scanViewRef.current = scanView;
+  }, [scanView]);
+
+  const startHelpScan = useCallback(async () => {
+    const map = mapRef.current;
+    const current = scanRef.current.status;
+    if (!map || current === "running" || current === "seeking") return;
+    const seeking = { status: "seeking" as const, countryName: null };
+    scanRef.current = seeking;
+    setScan(seeking);
+    try {
+      const countries = await dataProvider.getCountries();
+      const target = pickUnscannedArea(countries.features, dataProvider.getScans());
+      if (!mapRef.current) return;
+      if (!target) {
+        helpScanRef.current = false;
+        setScan({
+          status: "error",
+          message: "Couldn't find an unscanned area. Try again.",
+        });
+        return;
+      }
+      pendingFly.current = target;
+      helpScanRef.current = true;
+      setScan({ status: "seeking", countryName: target.countryName });
+      if (trailRef.current.length === 0) flyToTarget(target);
+      else {
+        setSelected(null);
+        setExplain(null);
+        setTrail([]);
+      }
+    } catch (error) {
+      helpScanRef.current = false;
+      setScan({ status: "error", message: (error as Error).message });
+    }
+  }, [flyToTarget]);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (consumeQueuedAutoScan()) void startHelpScan();
+    return onAutoScan(() => {
+      void startHelpScan();
+    });
+  }, [ready, startHelpScan]);
 
   const openScan = useCallback(async (result: ScanMeta) => {
     const countries = await dataProvider.getCountries();
@@ -859,6 +988,12 @@ export default function ExplorerMap() {
     setScan({ status: "idle" });
     setTrail(region ? [country, region] : [country]);
   }, []);
+
+  useEffect(() => {
+    if (scan.status !== "done" || !helpScanRef.current) return;
+    helpScanRef.current = false;
+    void openScan(scan.scan);
+  }, [scan, openScan]);
 
   const totals = useMemo(() => {
     // Inside a scan with a team tour, only the settlements the tour visits count.
@@ -938,6 +1073,7 @@ export default function ExplorerMap() {
 
   const canScan =
     viewTiles !== null && viewTiles <= baselineConfig.maxScanTiles;
+  const showWorldScan = ready && level === 0 && scan.status === "idle" && viewTiles === null;
 
   return (
     <div className={styles.wrap} data-theme={mapTheme}>
@@ -1134,10 +1270,33 @@ export default function ExplorerMap() {
         </p>
       </aside>
 
+      {showWorldScan && (
+        <button type="button" className={styles.worldScan} onClick={() => void startHelpScan()}>
+          <svg className={styles.worldScanMark} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="5.25" fill="none" stroke="currentColor" strokeWidth="1.4" />
+            <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+            <path
+              d="M8 1.4v2.1M8 12.5v2.1M1.4 8h2.1M12.5 8h2.1"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+            />
+          </svg>
+          Help us scan the world's rural areas
+        </button>
+      )}
+
       <div className={styles.rightControls}>
         {(viewTiles !== null || scan.status !== "idle") && (
           <div className={styles.scanBox}>
-            {scan.status === "running" ? (
+            {scan.status === "seeking" ? (
+              <span>
+                {scan.countryName
+                  ? `Opening an unscanned area in ${scan.countryName}…`
+                  : "Finding an unscanned area…"}
+              </span>
+            ) : scan.status === "running" ? (
               <span>
                 Scanning… {Math.round((now - scan.startedAt) / 1000)}s
               </span>

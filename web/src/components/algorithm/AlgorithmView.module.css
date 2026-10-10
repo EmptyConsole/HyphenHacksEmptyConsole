@@ -67,6 +67,11 @@
   list-style: none;
 }
 
+.scanRow {
+  max-width: 44rem;
+  margin-inline: auto;
+}
+
 .steps::before {
   content: "";
   position: absolute;

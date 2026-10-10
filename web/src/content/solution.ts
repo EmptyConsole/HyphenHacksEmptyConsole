@@ -134,6 +134,7 @@ export const solutionContent = {
       { value: "16 km²", label: "per scan, a box about 4 × 4 km" },
       { value: "0", label: "trained models: only color and shape rules" },
     ],
+    scan: "Want to see what a scan finds? Help us scan a region.",
   },
 
   check: {
@@ -157,6 +158,7 @@ export const solutionContent = {
     ],
     caveat:
       "Color rules can mistake rocks, bare fields or farm sheds for roofs. A certainty under 100 is a lead for a health team to check, not a confirmed village.",
+    scan: "Most of these places have no name yet. Help us scan a region.",
   },
 
   reach: {
@@ -188,6 +190,7 @@ export const solutionContent = {
     rateMax: 8,
     rateNote:
       "Paved road types tagged as dirt, gravel or sand cost 1.5× more. These rates are Hestia's planning assumptions, not measured prices.",
+    scan: "A route needs a real village. Help us scan a region.",
   },
 
   tour: {
@@ -211,6 +214,7 @@ export const solutionContent = {
       { value: "30+", label: "certainty needed for a settlement to be a stop" },
       { value: "⅓", label: "less travel, at best, than nearest-stop-first in our scans" },
     ],
+    scan: "One team, one loop. Help us scan a region.",
   },
 
   price: {
@@ -245,6 +249,7 @@ export const solutionContent = {
     ],
     caveat:
       "Hestia's $10 is spread over everyone in a settlement, not just children, so it isn't directly comparable with UNICEF's per-child figure. Both are rough planning numbers: UNICEF notes its benchmarks can't be used to budget a specific country.",
+    scan: "The cost only becomes real on the ground. Help us scan a region.",
   },
 
   closing: {
@@ -252,5 +257,6 @@ export const solutionContent = {
     body: "Each flagged settlement is a lead to verify. The next step is handing these lists to local teams and adding the places they confirm to OpenStreetMap, so the next campaign starts from a better map.",
     primaryCta: { label: "Explore the map", href: "/#map" },
     secondaryCta: { label: "See the algorithm", href: "/algorithm" },
+    scan: "See a real candidate. Help us scan a region.",
   },
 };

@@ -99,6 +99,7 @@ export const problemContent = {
       { label: "High income", value: 20 },
     ],
     source: "worldBank" as SourceId,
+    scan: "Country totals hide the villages. Help us scan a region.",
   },
 
   health: {
@@ -127,6 +128,7 @@ export const problemContent = {
         "Of the 10.3 million health workers the world is short of, about 7 million are needed in rural areas.",
     },
     source: "ilo" as SourceId,
+    scan: "The gap is in the countryside. Help us scan a region.",
   },
 
   invisible: {
@@ -149,6 +151,7 @@ export const problemContent = {
     caveat:
       "The study could only check maps up to 2010. Newer maps may be better, but the authors say there is strong reason to believe they still miss rural people.",
     source: "nature" as SourceId,
+    scan: "Still missing from the map? Help us scan a region.",
   },
 
   vaccines: {
@@ -163,6 +166,7 @@ export const problemContent = {
       { value: "#1", label: "Nigeria has more zero-dose children than any other country" },
     ],
     source: "wuenic" as SourceId,
+    scan: "Zero-dose children live somewhere. Help us scan a region.",
   },
 
   closing: {
@@ -170,5 +174,6 @@ export const problemContent = {
     body: "Hestia looks for settlements that satellites can see but maps don't show, then plots a route from the nearest clinic so health teams can get there.",
     primaryCta: { label: "Explore the map", href: "/#map" },
     secondaryCta: { label: "See the algorithm", href: "/algorithm" },
+    scan: "Reaching them starts with a place on the map. Help us scan a region.",
   },
 };
