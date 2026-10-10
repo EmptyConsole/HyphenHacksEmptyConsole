@@ -1,0 +1,23 @@
+.section {
+  padding-block: var(--space-24) var(--space-32);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 40rem;
+  margin-bottom: var(--space-10);
+}
+
+.title {
+  font-size: var(--text-h2);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-heading);
+  line-height: var(--leading-snug);
+}
+
+.lead {
+  font-size: var(--text-lead);
+  color: var(--color-text-secondary);
+}

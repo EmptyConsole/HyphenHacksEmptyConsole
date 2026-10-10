@@ -1,0 +1,89 @@
+.hero {
+  position: relative;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse 60% 50% at 70% 50%, rgba(123, 140, 255, 0.12), transparent 70%),
+    url("/textures/night-sky.png") center / cover,
+    var(--color-bg);
+}
+
+/* Globe sits right of center on desktop, centered behind the copy on mobile. */
+.globe {
+  position: absolute;
+  z-index: -2;
+  top: 0;
+  bottom: 0;
+  left: 28%;
+  right: -22%;
+}
+
+.fade {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, var(--color-bg) 0%, rgba(5, 7, 13, 0.85) 30%, transparent 60%),
+    linear-gradient(0deg, var(--color-bg) 0%, transparent 22%);
+}
+
+.content {
+  padding-top: var(--nav-height);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-6);
+}
+
+.headline {
+  max-width: 13ch;
+  font-size: var(--text-display);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-display);
+}
+
+.accent {
+  background: linear-gradient(90deg, var(--data-4), var(--data-3) 55%, var(--color-constellation));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.lead {
+  max-width: 34rem;
+  font-size: var(--text-lead);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-body);
+}
+
+.ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+@media (max-width: 860px) {
+  .globe {
+    left: -15%;
+    right: -15%;
+    top: 48%;
+    bottom: -12%;
+  }
+
+  .fade {
+    background:
+      linear-gradient(180deg, var(--color-bg) 0%, rgba(5, 7, 13, 0.7) 45%, transparent 70%),
+      linear-gradient(0deg, var(--color-bg) 0%, transparent 25%);
+  }
+
+  .content {
+    align-self: flex-start;
+    padding-top: calc(var(--nav-height) + var(--space-16));
+  }
+}

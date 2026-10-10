@@ -1,0 +1,219 @@
+.wrap {
+  position: relative;
+  height: min(74vh, 720px);
+  min-height: 520px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-3);
+}
+
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+/* ---------- Side panel ---------- */
+
+.panel {
+  position: absolute;
+  z-index: var(--z-map-overlay);
+  top: var(--space-4);
+  left: var(--space-4);
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+
+.crumbs > span {
+  display: inline-flex;
+  gap: var(--space-1);
+}
+
+.crumbs button {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.crumbs button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+}
+
+.crumbs button[data-current] {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.title {
+  margin-top: var(--space-1);
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-heading);
+  line-height: var(--leading-snug);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+
+.stats dt {
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  text-transform: capitalize;
+}
+
+.stats dd {
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+}
+
+.selected {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-constellation-soft);
+  border: 1px solid rgba(123, 140, 255, 0.3);
+  font-size: var(--text-small);
+}
+
+.selected span {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+
+.ramp {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--data-0), var(--data-1), var(--data-2), var(--data-3), var(--data-4));
+}
+
+.rampLabels {
+  display: flex;
+  justify-content: space-between;
+}
+
+.hint {
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+}
+
+/* ---------- Tooltip ---------- */
+
+.tooltip {
+  position: absolute;
+  z-index: var(--z-tooltip);
+  pointer-events: none;
+  min-width: 180px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-2);
+  transform: translate(16px, 16px);
+  font-size: var(--text-small);
+}
+
+.tooltip[data-flip] {
+  transform: translate(calc(-100% - 16px), 16px);
+}
+
+.tooltip dl {
+  margin-top: var(--space-2);
+  display: grid;
+  gap: var(--space-1);
+}
+
+.tooltip dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.tooltip dt {
+  color: var(--color-text-tertiary);
+}
+
+.tooltip dd {
+  font-family: var(--font-mono);
+}
+
+/* ---------- MapLibre control theming ---------- */
+
+.wrap :global(.maplibregl-ctrl-group) {
+  background: var(--color-surface-glass);
+  border: 1px solid var(--color-border);
+  box-shadow: none;
+}
+
+.wrap :global(.maplibregl-ctrl-group button + button) {
+  border-top-color: var(--color-border);
+}
+
+.wrap :global(.maplibregl-ctrl-icon) {
+  filter: invert(1);
+}
+
+.wrap :global(.maplibregl-ctrl-attrib) {
+  background: rgba(5, 7, 13, 0.7);
+  color: var(--color-text-tertiary);
+}
+
+.wrap :global(.maplibregl-ctrl-attrib a) {
+  color: var(--color-text-secondary);
+}
+
+@media (max-width: 760px) {
+  .wrap {
+    height: 80vh;
+    border-radius: var(--radius-lg);
+  }
+
+  .panel {
+    top: var(--space-3);
+    left: var(--space-3);
+    right: var(--space-3);
+    width: auto;
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+
+  .legend,
+  .hint {
+    display: none;
+  }
+}
