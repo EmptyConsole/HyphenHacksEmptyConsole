@@ -1,6 +1,7 @@
 import type { Feature, FeatureCollection, Geometry } from "geojson";
 import type {
   AreaCollection,
+  AreaFeature,
   AreaProperties,
   ScanMeta,
   VillageLayer,
@@ -12,6 +13,8 @@ export interface ExportView {
   /** Breadcrumb names below "World". */
   path: string[];
   parent: AreaProperties | null;
+  /** The area the view is inside; exported itself when it has nothing inside it. */
+  parentFeature: AreaFeature | null;
   collection: AreaCollection;
   layer: Omit<VillageLayer, "areas"> | null;
   scans: ScanMeta[];
@@ -60,9 +63,17 @@ function areaProps(view: ExportView, props: AreaProperties): Record<string, unkn
   };
 }
 
+/** An unscanned country: nothing inside it, so the country itself is exported. */
+function exportsParent(view: ExportView) {
+  return !view.selected && !view.collection.features.length && !!view.parentFeature;
+}
+
 /** The areas, routes, clinics and tour that the export covers. */
 function contents(view: ExportView) {
   const { collection, layer, selected } = view;
+  if (exportsParent(view)) {
+    return { areas: [view.parentFeature!], routes: [], clinics: [], tour: null };
+  }
   if (!selected) {
     return {
       areas: collection.features,
@@ -90,13 +101,15 @@ export function describeExport(view: ExportView): string {
     const parts = ["Outline"];
     if (routes.length) parts.push("route");
     if (clinics.length) parts.push("clinic");
-    return `${parts.join(", ")} and costs for this settlement`;
+    return `${parts.join(", ")} and costs`;
   }
+  if (exportsParent(view)) return "Outline and estimate, no scans yet";
+  const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
   const parts = [`${areas.length} ${view.summary.countLabel}`];
   const scans = view.level < 2 ? scansInView(view).length : 0;
-  if (scans && view.summary.countLabel !== "scans") parts.push(`${scans} scans`);
-  if (routes.length) parts.push(`${routes.length} routes`);
-  if (clinics.length) parts.push(`${clinics.length} clinics`);
+  if (scans && view.summary.countLabel !== "scans") parts.push(count(scans, "scan"));
+  if (routes.length) parts.push(count(routes.length, "route"));
+  if (clinics.length) parts.push(count(clinics.length, "clinic"));
   if (tour) parts.push("team tour");
   return parts.join(" · ");
 }
@@ -167,7 +180,9 @@ function slug(text: string) {
 export function exportFileName(view: ExportView, format: ExportFormat) {
   const names = view.selected
     ? [...view.path, view.selected.name]
-    : [...(view.path.length ? view.path : ["world"]), view.summary.countLabel];
+    : exportsParent(view)
+      ? view.path
+      : [...(view.path.length ? view.path : ["world"]), view.summary.countLabel];
   return `hestia-${names.map(slug).filter(Boolean).join("-")}.${format}`;
 }
 
