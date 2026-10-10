@@ -1,11 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { ExpressionSpecification } from "@maplibre/maplibre-gl-style-spec";
 import * as maplibregl from "maplibre-gl";
-import type { GeoJSONSource, LngLatBoundsLike, MapLayerMouseEvent } from "maplibre-gl";
+import type {
+  GeoJSONSource,
+  LngLatBoundsLike,
+  MapLayerMouseEvent,
+} from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { area as turfArea, bbox, booleanPointInPolygon, featureCollection, point, pointOnFeature } from "@turf/turf";
+import {
+  area as turfArea,
+  bbox,
+  booleanPointInPolygon,
+  featureCollection,
+  point,
+  pointOnFeature,
+} from "@turf/turf";
 import type { Feature, Polygon } from "geojson";
 import {
   dataProvider,
@@ -19,7 +37,7 @@ import { baselineConfig } from "@/data/baselineConfig";
 import { tokens } from "@/design/tokens";
 import { formatCost, formatPopulation } from "@/lib/format";
 import { tileCount } from "@/lib/tiles";
-import { baseStyle, intensityColor } from "./mapStyle";
+import { getBaseStyle, intensityColor, type MapTheme } from "./mapStyle";
 import styles from "./ExplorerMap.module.css";
 import {
   explainStat,
@@ -42,8 +60,22 @@ const CHILD_LABEL = ["countries", "regions", "villages"] as const;
 const SCAN_MIN_ZOOM = 8;
 
 type Hover =
-  | { x: number; y: number; flip: boolean; flipY: boolean; kind: "area"; props: AreaProperties }
-  | { x: number; y: number; flip: boolean; flipY: boolean; kind: "clinic"; name: string }
+  | {
+      x: number;
+      y: number;
+      flip: boolean;
+      flipY: boolean;
+      kind: "area";
+      props: AreaProperties;
+    }
+  | {
+      x: number;
+      y: number;
+      flip: boolean;
+      flipY: boolean;
+      kind: "clinic";
+      name: string;
+    }
   | null;
 
 type ScanState =
@@ -54,10 +86,20 @@ type ScanState =
 
 /** Adds a 0–1 rank-based `intensity` so colors spread evenly at every zoom level. */
 function withIntensity(fc: AreaCollection) {
-  const ranked = [...fc.features].sort((a, b) => a.properties.estimated_cost - b.properties.estimated_cost);
-  const rank = new Map(ranked.map((f, i) => [f.properties.id, ranked.length > 1 ? i / (ranked.length - 1) : 1]));
+  const ranked = [...fc.features].sort(
+    (a, b) => a.properties.estimated_cost - b.properties.estimated_cost,
+  );
+  const rank = new Map(
+    ranked.map((f, i) => [
+      f.properties.id,
+      ranked.length > 1 ? i / (ranked.length - 1) : 1,
+    ]),
+  );
   return featureCollection(
-    fc.features.map((f) => ({ ...f, properties: { ...f.properties, intensity: rank.get(f.properties.id) } })),
+    fc.features.map((f) => ({
+      ...f,
+      properties: { ...f.properties, intensity: rank.get(f.properties.id) },
+    })),
   );
 }
 
@@ -66,7 +108,11 @@ function boundsOf(feature: AreaFeature): LngLatBoundsLike {
   let [minX, minY, maxX, maxY] = bbox(feature);
   if (maxX - minX > 180 && feature.geometry.type === "MultiPolygon") {
     const parts = feature.geometry.coordinates.map(
-      (coordinates): Feature<Polygon> => ({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates } }),
+      (coordinates): Feature<Polygon> => ({
+        type: "Feature",
+        properties: {},
+        geometry: { type: "Polygon", coordinates },
+      }),
     );
     const largest = parts.reduce((a, b) => (turfArea(b) > turfArea(a) ? b : a));
     [minX, minY, maxX, maxY] = bbox(largest);
@@ -83,22 +129,32 @@ function markerPoints(level: number, fc: AreaCollection, scans: ScanMeta[]) {
   if (level === 0) {
     return featureCollection(
       scans.map((s) =>
-        point([(s.bbox.west + s.bbox.east) / 2, (s.bbox.south + s.bbox.north) / 2], {
-          areaId: s.countryId,
-          halo: 14,
-          core: 3.5,
-        }),
+        point(
+          [(s.bbox.west + s.bbox.east) / 2, (s.bbox.south + s.bbox.north) / 2],
+          {
+            areaId: s.countryId,
+            halo: 14,
+            core: 3.5,
+          },
+        ),
       ),
     );
   }
-  if (level === 1 && fc.features[0]?.properties.data_source !== "detected") return EMPTY;
+  if (level === 1 && fc.features[0]?.properties.data_source !== "detected")
+    return EMPTY;
   const size = level === 1 ? { halo: 16, core: 4.5 } : {};
   return featureCollection(
-    fc.features.map((f) => ({ ...pointOnFeature(f), properties: { areaId: f.properties.id, ...size } })),
+    fc.features.map((f) => ({
+      ...pointOnFeature(f),
+      properties: { areaId: f.properties.id, ...size },
+    })),
   );
 }
 
-function sum(fc: AreaCollection | null, key: "estimated_population" | "estimated_cost") {
+function sum(
+  fc: AreaCollection | null,
+  key: "estimated_population" | "estimated_cost",
+) {
   return (fc?.features ?? []).reduce((s, f) => s + f.properties[key], 0);
 }
 
@@ -113,7 +169,9 @@ export default function ExplorerMap() {
   const [loading, setLoading] = useState(true);
   const [trail, setTrail] = useState<AreaFeature[]>([]); // [country?, region?]
   const [collection, setCollection] = useState<AreaCollection | null>(null);
-  const [extras, setExtras] = useState<Omit<VillageLayer, "areas"> | null>(null);
+  const [extras, setExtras] = useState<Omit<VillageLayer, "areas"> | null>(
+    null,
+  );
   const [parentProps, setParentProps] = useState<AreaProperties | null>(null);
   const [selected, setSelected] = useState<AreaProperties | null>(null);
   const [hover, setHover] = useState<Hover>(null);
@@ -122,10 +180,26 @@ export default function ExplorerMap() {
   const [viewTiles, setViewTiles] = useState<number | null>(null);
   const [scan, setScan] = useState<ScanState>({ status: "idle" });
   const [now, setNow] = useState(() => Date.now());
+  const [mapTheme, setMapTheme] = useState<MapTheme>("dark");
 
   /** Which number's explanation is open, e.g. "stat:cost" or "village:reach". */
   const [explain, setExplain] = useState<string | null>(null);
-  const toggleExplain = useCallback((key: string) => setExplain((k) => (k === key ? null : key)), []);
+  const toggleExplain = useCallback(
+    (key: string) => setExplain((k) => (k === key ? null : key)),
+    [],
+  );
+
+  const syncMapTheme = useCallback((theme: MapTheme) => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+
+    const dark = theme === "dark";
+    map.setPaintProperty("osm", "raster-brightness-min", dark ? 0.92 : 0);
+    map.setPaintProperty("osm", "raster-brightness-max", dark ? 0.04 : 1);
+    map.setPaintProperty("osm", "raster-hue-rotate", dark ? 180 : 0);
+    map.setPaintProperty("osm", "raster-saturation", dark ? -0.55 : 0);
+    map.setPaintProperty("osm", "raster-contrast", dark ? 0.1 : 0);
+  }, []);
 
   const level = trail.length;
   const trailRef = useRef(trail);
@@ -152,7 +226,7 @@ export default function ExplorerMap() {
   useEffect(() => {
     const map = new maplibregl.Map({
       container: containerRef.current!,
-      style: baseStyle,
+      style: getBaseStyle(mapTheme),
       center: WORLD_VIEW.center,
       zoom: WORLD_VIEW.zoom,
       minZoom: 1,
@@ -161,7 +235,10 @@ export default function ExplorerMap() {
       attributionControl: { compact: true },
     });
     mapRef.current = map;
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    map.addControl(
+      new maplibregl.NavigationControl({ showCompass: false }),
+      "top-right",
+    );
 
     map.on("load", () => {
       map.addSource("context", { type: "geojson", data: EMPTY });
@@ -170,9 +247,21 @@ export default function ExplorerMap() {
       map.addSource("routes", { type: "geojson", data: EMPTY });
       map.addSource("clinics", { type: "geojson", data: EMPTY });
 
-      const hovered: ExpressionSpecification = ["boolean", ["feature-state", "hover"], false];
-      const isSelected: ExpressionSpecification = ["boolean", ["feature-state", "selected"], false];
-      const detected: ExpressionSpecification = ["==", ["get", "data_source"], "detected"];
+      const hovered: ExpressionSpecification = [
+        "boolean",
+        ["feature-state", "hover"],
+        false,
+      ];
+      const isSelected: ExpressionSpecification = [
+        "boolean",
+        ["feature-state", "selected"],
+        false,
+      ];
+      const detected: ExpressionSpecification = [
+        "==",
+        ["get", "data_source"],
+        "detected",
+      ];
 
       map.addLayer({
         id: "areas-fill",
@@ -192,9 +281,12 @@ export default function ExplorerMap() {
           // Detected areas get a solid constellation outline; modeled ones a faint one.
           "line-color": [
             "case",
-            hovered, tokens.color.accent,
-            isSelected, tokens.color.accent,
-            detected, tokens.color.constellation,
+            hovered,
+            tokens.color.accent,
+            isSelected,
+            tokens.color.accent,
+            detected,
+            tokens.color.constellation,
             "rgba(255,255,255,0.28)",
           ],
           "line-width": ["case", hovered, 2, detected, 1.6, 0.6],
@@ -213,7 +305,11 @@ export default function ExplorerMap() {
         source: "routes",
         filter: ["==", ["get", "kind"], "road"],
         layout: { "line-join": "round", "line-cap": "round" },
-        paint: { "line-color": tokens.color.constellation, "line-width": 1.2, "line-opacity": 0.35 },
+        paint: {
+          "line-color": tokens.color.constellation,
+          "line-width": 1.2,
+          "line-opacity": 0.35,
+        },
       });
       map.addLayer({
         id: "routes-offroad",
@@ -251,7 +347,10 @@ export default function ExplorerMap() {
         id: "dots-core",
         type: "circle",
         source: "dots",
-        paint: { "circle-radius": ["coalesce", ["get", "core"], 2.5], "circle-color": tokens.color.accent },
+        paint: {
+          "circle-radius": ["coalesce", ["get", "core"], 2.5],
+          "circle-color": tokens.color.accent,
+        },
       });
       // Invisible, bigger target so tiny markers are easy to hover and click.
       map.addLayer({
@@ -264,7 +363,12 @@ export default function ExplorerMap() {
         id: "clinics-halo",
         type: "circle",
         source: "clinics",
-        paint: { "circle-radius": 12, "circle-color": tokens.color.text, "circle-opacity": 0.15, "circle-blur": 1 },
+        paint: {
+          "circle-radius": 12,
+          "circle-color": tokens.color.text,
+          "circle-opacity": 0.15,
+          "circle-blur": 1,
+        },
       });
       map.addLayer({
         id: "clinics-core",
@@ -279,11 +383,18 @@ export default function ExplorerMap() {
       });
 
       const setHoverState = (id: string | null) => {
-        if (hoverIdRef.current) map.setFeatureState({ source: "areas", id: hoverIdRef.current }, { hover: false });
+        if (hoverIdRef.current)
+          map.setFeatureState(
+            { source: "areas", id: hoverIdRef.current },
+            { hover: false },
+          );
         hoverIdRef.current = id;
         if (id) map.setFeatureState({ source: "areas", id }, { hover: true });
       };
-      const findArea = (id: unknown) => collectionRef.current?.features.find((f) => f.properties.id === String(id));
+      const findArea = (id: unknown) =>
+        collectionRef.current?.features.find(
+          (f) => f.properties.id === String(id),
+        );
       // Keep the tooltip inside the map: open left near the right edge, upward near the bottom.
       const flipAt = (e: MapLayerMouseEvent) => ({
         flip: e.point.x > map.getContainer().clientWidth - 240,
@@ -295,7 +406,13 @@ export default function ExplorerMap() {
         if (!feature) return;
         map.getCanvas().style.cursor = "pointer";
         setHoverState(feature.properties.id);
-        setHover({ x: e.point.x, y: e.point.y, ...flipAt(e), kind: "area", props: feature.properties });
+        setHover({
+          x: e.point.x,
+          y: e.point.y,
+          ...flipAt(e),
+          kind: "area",
+          props: feature.properties,
+        });
       };
       const leave = () => {
         map.getCanvas().style.cursor = "";
@@ -303,12 +420,22 @@ export default function ExplorerMap() {
         setHover(null);
       };
 
-      map.on("mousemove", "areas-fill", (e) => hoverArea(e, e.features?.[0]?.id));
-      map.on("mousemove", "dots-hit", (e) => hoverArea(e, e.features?.[0]?.properties.areaId));
+      map.on("mousemove", "areas-fill", (e) =>
+        hoverArea(e, e.features?.[0]?.id),
+      );
+      map.on("mousemove", "dots-hit", (e) =>
+        hoverArea(e, e.features?.[0]?.properties.areaId),
+      );
       map.on("mousemove", "clinics-core", (e) => {
         const name = e.features?.[0]?.properties.name;
         map.getCanvas().style.cursor = "default";
-        setHover({ x: e.point.x, y: e.point.y, ...flipAt(e), kind: "clinic", name: String(name) });
+        setHover({
+          x: e.point.x,
+          y: e.point.y,
+          ...flipAt(e),
+          kind: "clinic",
+          name: String(name),
+        });
       });
       map.on("mouseleave", "areas-fill", leave);
       map.on("mouseleave", "dots-hit", leave);
@@ -327,7 +454,9 @@ export default function ExplorerMap() {
       const measureView = () => {
         if (map.getZoom() < SCAN_MIN_ZOOM) return setViewTiles(null);
         const b = map.getBounds();
-        setViewTiles(tileCount(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
+        setViewTiles(
+          tileCount(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()),
+        );
       };
       map.on("moveend", measureView);
 
@@ -344,6 +473,11 @@ export default function ExplorerMap() {
       setReady(false);
     };
   }, [drillInto]);
+
+  useEffect(() => {
+    if (!ready) return;
+    syncMapTheme(mapTheme);
+  }, [ready, mapTheme, syncMapTheme]);
 
   // ---- Poll for scans saved by scan-batch.js or a live scan ----
   useEffect(() => {
@@ -374,14 +508,18 @@ export default function ExplorerMap() {
           fc = await dataProvider.getCountries();
         } else if (level === 1) {
           fc = await dataProvider.getRegions(trail[0]);
-          fresh = (await dataProvider.getCountries()).features.find((f) => f.properties.id === parent.properties.id)
-            ?.properties ?? null;
+          fresh =
+            (await dataProvider.getCountries()).features.find(
+              (f) => f.properties.id === parent.properties.id,
+            )?.properties ?? null;
         } else {
           const villages = await dataProvider.getVillages(trail[1]);
           fc = villages.areas;
           layer = { routes: villages.routes, clinics: villages.clinics };
-          fresh = (await dataProvider.getRegions(trail[0])).features.find((f) => f.properties.id === parent.properties.id)
-            ?.properties ?? null;
+          fresh =
+            (await dataProvider.getRegions(trail[0])).features.find(
+              (f) => f.properties.id === parent.properties.id,
+            )?.properties ?? null;
         }
       } catch (error) {
         console.error(error);
@@ -397,21 +535,37 @@ export default function ExplorerMap() {
       setExtras(layer);
       setScans(currentScans);
       setParentProps(fresh ?? parent?.properties ?? null);
-      setSelected((s) => (s && fc.features.some((f) => f.properties.id === s.id) ? s : null));
+      setSelected((s) =>
+        s && fc.features.some((f) => f.properties.id === s.id) ? s : null,
+      );
       (map.getSource("areas") as GeoJSONSource).setData(withIntensity(fc));
-      (map.getSource("context") as GeoJSONSource).setData(parent ? featureCollection([parent]) : EMPTY);
-      (map.getSource("dots") as GeoJSONSource).setData(markerPoints(level, fc, currentScans));
-      (map.getSource("routes") as GeoJSONSource).setData(layer?.routes ?? EMPTY);
-      (map.getSource("clinics") as GeoJSONSource).setData(layer?.clinics ?? EMPTY);
+      (map.getSource("context") as GeoJSONSource).setData(
+        parent ? featureCollection([parent]) : EMPTY,
+      );
+      (map.getSource("dots") as GeoJSONSource).setData(
+        markerPoints(level, fc, currentScans),
+      );
+      (map.getSource("routes") as GeoJSONSource).setData(
+        layer?.routes ?? EMPTY,
+      );
+      (map.getSource("clinics") as GeoJSONSource).setData(
+        layer?.clinics ?? EMPTY,
+      );
 
       const cameraKey = trail.map((f) => f.properties.id).join("|");
       if (cameraKey !== cameraKeyRef.current) {
         cameraKeyRef.current = cameraKey;
         const wide = map.getContainer().clientWidth > 760;
-        const padding = wide ? { top: 60, bottom: 60, left: 360, right: 60 } : { top: 200, bottom: 30, left: 30, right: 30 };
+        const padding = wide
+          ? { top: 60, bottom: 60, left: 360, right: 60 }
+          : { top: 200, bottom: 30, left: 30, right: 30 };
         // Scan boxes are ~4 km across, so allow a much closer zoom for detected regions.
-        const maxZoom = parent?.properties.data_source === "detected" && level === 2 ? 15 : 12;
-        if (parent) map.fitBounds(boundsOf(parent), { padding, duration: 1600, maxZoom });
+        const maxZoom =
+          parent?.properties.data_source === "detected" && level === 2
+            ? 15
+            : 12;
+        if (parent)
+          map.fitBounds(boundsOf(parent), { padding, duration: 1600, maxZoom });
         else map.flyTo({ ...WORLD_VIEW, duration: 1600 });
       }
       setLoading(false);
@@ -426,23 +580,35 @@ export default function ExplorerMap() {
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    const routeFor = selected?.id ?? (hover?.kind === "area" && hover.props.level === "village" ? hover.props.id : "");
+    const routeFor =
+      selected?.id ??
+      (hover?.kind === "area" && hover.props.level === "village"
+        ? hover.props.id
+        : "");
     map.setFilter("routes-active", ["==", ["get", "villageId"], routeFor]);
   }, [ready, selected, hover]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !selected) return;
-    map.setFeatureState({ source: "areas", id: selected.id }, { selected: true });
+    map.setFeatureState(
+      { source: "areas", id: selected.id },
+      { selected: true },
+    );
     return () => {
-      if (map.getSource("areas")) map.setFeatureState({ source: "areas", id: selected.id }, { selected: false });
+      if (map.getSource("areas"))
+        map.setFeatureState(
+          { source: "areas", id: selected.id },
+          { selected: false },
+        );
     };
   }, [ready, selected]);
 
   // ---- Escape goes up a level ----
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && trailRef.current.length > 0) goTo(trailRef.current.length - 1);
+      if (e.key === "Escape" && trailRef.current.length > 0)
+        goTo(trailRef.current.length - 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -461,9 +627,14 @@ export default function ExplorerMap() {
     const b = map.getBounds();
     const center = map.getCenter();
     const countries = await dataProvider.getCountries();
-    const country = countries.features.find((f) => booleanPointInPolygon([center.lng, center.lat], f));
+    const country = countries.features.find((f) =>
+      booleanPointInPolygon([center.lng, center.lat], f),
+    );
     if (!country) {
-      setScan({ status: "error", message: "Center the view on land inside a country." });
+      setScan({
+        status: "error",
+        message: "Center the view on land inside a country.",
+      });
       return;
     }
     setScan({ status: "running", startedAt: Date.now() });
@@ -486,10 +657,14 @@ export default function ExplorerMap() {
 
   const openScan = useCallback(async (result: ScanMeta) => {
     const countries = await dataProvider.getCountries();
-    const country = countries.features.find((f) => f.properties.id === result.countryId);
+    const country = countries.features.find(
+      (f) => f.properties.id === result.countryId,
+    );
     if (!country) return;
     const regions = await dataProvider.getRegions(country);
-    const region = regions.features.find((f) => f.properties.id === `scan:${result.id}`);
+    const region = regions.features.find(
+      (f) => f.properties.id === `scan:${result.id}`,
+    );
     setSelected(null);
     setScan({ status: "idle" });
     setTrail(region ? [country, region] : [country]);
@@ -498,18 +673,27 @@ export default function ExplorerMap() {
   const totals = useMemo(
     () => ({
       count: collection?.features.length ?? 0,
-      population: level === 0 ? sum(collection, "estimated_population") : (parentProps?.estimated_population ?? 0),
-      cost: level === 0 ? sum(collection, "estimated_cost") : (parentProps?.estimated_cost ?? 0),
+      population:
+        level === 0
+          ? sum(collection, "estimated_population")
+          : (parentProps?.estimated_population ?? 0),
+      cost:
+        level === 0
+          ? sum(collection, "estimated_cost")
+          : (parentProps?.estimated_cost ?? 0),
     }),
     [collection, level, parentProps],
   );
 
-  const detectedHere = collection?.features[0]?.properties.data_source === "detected" && level > 0;
+  const detectedHere =
+    collection?.features[0]?.properties.data_source === "detected" && level > 0;
   const detectedCountries = new Set(scans.map((s) => s.countryId)).size;
   const detectedVillages = scans.reduce((s, x) => s + x.villages, 0);
-  const osmConfirmed = detectedHere && level === 2
-    ? collection!.features.filter((f) => f.properties.detection === "osm").length
-    : 0;
+  const osmConfirmed =
+    detectedHere && level === 2
+      ? collection!.features.filter((f) => f.properties.detection === "osm")
+          .length
+      : 0;
 
   const hint =
     level === 0
@@ -522,23 +706,59 @@ export default function ExplorerMap() {
           ? "Click a settlement for its route and certainty. Click any number to see how it was worked out."
           : "Click a village for details.";
 
-  const panelContext: PanelContext = { level, parent: parentProps, collection, scans };
+  const panelContext: PanelContext = {
+    level,
+    parent: parentProps,
+    collection,
+    scans,
+  };
 
-  const canScan = viewTiles !== null && viewTiles <= baselineConfig.maxScanTiles;
+  const canScan =
+    viewTiles !== null && viewTiles <= baselineConfig.maxScanTiles;
 
   return (
     <div className={styles.wrap}>
+      <div className={styles.themeToggle} aria-label="Map theme selector">
+        <span className={styles.themeLabel}>Map</span>
+        <div className={styles.themeButtons}>
+          <button
+            type="button"
+            className={styles.themeButton}
+            aria-pressed={mapTheme === "dark"}
+            data-active={mapTheme === "dark" || undefined}
+            onClick={() => setMapTheme("dark")}
+          >
+            Dark
+          </button>
+          <button
+            type="button"
+            className={styles.themeButton}
+            aria-pressed={mapTheme === "light"}
+            data-active={mapTheme === "light" || undefined}
+            onClick={() => setMapTheme("light")}
+          >
+            Light
+          </button>
+        </div>
+      </div>
+
       <div ref={containerRef} className={styles.map} />
 
       <aside className={styles.panel} aria-live="polite">
         <nav className={styles.crumbs} aria-label="Map level">
-          <button onClick={() => goTo(0)} data-current={level === 0 || undefined}>
+          <button
+            onClick={() => goTo(0)}
+            data-current={level === 0 || undefined}
+          >
             World
           </button>
           {trail.map((f, i) => (
             <span key={f.properties.id}>
               <span aria-hidden="true">/</span>
-              <button onClick={() => goTo(i + 1)} data-current={level === i + 1 || undefined}>
+              <button
+                onClick={() => goTo(i + 1)}
+                data-current={level === i + 1 || undefined}
+              >
                 {f.properties.name}
               </button>
             </span>
@@ -547,14 +767,20 @@ export default function ExplorerMap() {
 
         <div>
           <p className="eyebrow">{LEVEL_LABEL[level]}</p>
-          <h3 className={styles.title}>{parentProps?.name ?? "All countries"}</h3>
+          <h3 className={styles.title}>
+            {parentProps?.name ?? "All countries"}
+          </h3>
           {parentProps && <SourceBadge props={parentProps} />}
         </div>
 
         <div className={styles.stats}>
           {(
             [
-              ["population", "Est. population", formatPopulation(totals.population)],
+              [
+                "population",
+                "Est. population",
+                formatPopulation(totals.population),
+              ],
               ["cost", "Est. cost", formatCost(totals.cost)],
               ["count", CHILD_LABEL[level], String(totals.count)],
             ] as const
@@ -571,7 +797,9 @@ export default function ExplorerMap() {
           ))}
         </div>
         {explain?.startsWith("stat:") && explain !== "stat:detected" && (
-          <ExplainBox explanation={explainStat(explain.slice(5) as StatKey, panelContext)} />
+          <ExplainBox
+            explanation={explainStat(explain.slice(5) as StatKey, panelContext)}
+          />
         )}
 
         {(level === 0 || detectedHere) && (
@@ -590,20 +818,27 @@ export default function ExplorerMap() {
             ) : (
               <>
                 <strong>Detected here</strong>
-                {formatPopulation(sum(collection, "estimated_population"))} people ·{" "}
-                {formatCost(sum(collection, "estimated_cost"))}
-                {level === 2 && ` · ${osmConfirmed} of ${totals.count} confirmed by OSM`}
+                {formatPopulation(sum(collection, "estimated_population"))}{" "}
+                people · {formatCost(sum(collection, "estimated_cost"))}
+                {level === 2 &&
+                  ` · ${osmConfirmed} of ${totals.count} confirmed by OSM`}
               </>
             )}
           </button>
         )}
-        {explain === "stat:detected" && <ExplainBox explanation={explainStat("detected", panelContext)} />}
+        {explain === "stat:detected" && (
+          <ExplainBox explanation={explainStat("detected", panelContext)} />
+        )}
 
         {selected && (
           <div className={styles.selected}>
             <p className="eyebrow">Selected</p>
             <strong>{selected.name}</strong>
-            <VillageDetails props={selected} open={explain} onToggle={toggleExplain} />
+            <VillageDetails
+              props={selected}
+              open={explain}
+              onToggle={toggleExplain}
+            />
           </div>
         )}
 
@@ -650,17 +885,24 @@ export default function ExplorerMap() {
           ) : scan.status === "done" ? (
             <>
               <span>
-                Found {scan.scan.villages} settlements in {scan.scan.countryName}.
+                Found {scan.scan.villages} settlements in{" "}
+                {scan.scan.countryName}.
               </span>
               <button onClick={() => openScan(scan.scan)}>View results</button>
             </>
           ) : scan.status === "error" ? (
             <>
               <span>{scan.message}</span>
-              <button onClick={() => setScan({ status: "idle" })}>Dismiss</button>
+              <button onClick={() => setScan({ status: "idle" })}>
+                Dismiss
+              </button>
             </>
           ) : (
-            <button onClick={scanView} disabled={!canScan} title={canScan ? undefined : `${viewTiles} tiles in view`}>
+            <button
+              onClick={scanView}
+              disabled={!canScan}
+              title={canScan ? undefined : `${viewTiles} tiles in view`}
+            >
               {canScan ? "Scan this view" : "Zoom in to scan"}
             </button>
           )}
@@ -693,7 +935,9 @@ export default function ExplorerMap() {
                   <dd>{formatCost(hover.props.estimated_cost)}</dd>
                 </div>
               </dl>
-              {hover.props.certainty !== undefined && <VillageSummary props={hover.props} />}
+              {hover.props.certainty !== undefined && (
+                <VillageSummary props={hover.props} />
+              )}
             </>
           )}
         </div>
@@ -719,7 +963,11 @@ function VillageSummary({ props }: { props: AreaProperties }) {
         <dt>Certainty</dt>
         <dd>
           {props.certainty}
-          <small>{props.detection === "osm" ? " · OSM confirmed" : " · satellite only"}</small>
+          <small>
+            {props.detection === "osm"
+              ? " · OSM confirmed"
+              : " · satellite only"}
+          </small>
         </dd>
       </div>
       {props.reach_label && (
@@ -759,10 +1007,20 @@ function VillageDetails({
         "Certainty",
         <>
           {props.certainty}
-          <small>{props.detection === "osm" ? " · OSM confirmed" : " · satellite only"}</small>
+          <small>
+            {props.detection === "osm"
+              ? " · OSM confirmed"
+              : " · satellite only"}
+          </small>
         </>,
       ],
-      ["reach", "Reach", props.reach_label ? `${props.reach_label} · ${props.reach_difficulty}/100` : "–"],
+      [
+        "reach",
+        "Reach",
+        props.reach_label
+          ? `${props.reach_label} · ${props.reach_difficulty}/100`
+          : "–",
+      ],
       ["clinic", "Clinic", props.clinic_name ?? "none in range"],
     );
   }
@@ -778,7 +1036,9 @@ function VillageDetails({
             <span>{label}</span>
             <span>{value}</span>
           </button>
-          {open === `village:${key}` && <ExplainBox explanation={explainVillage(key, props)} />}
+          {open === `village:${key}` && (
+            <ExplainBox explanation={explainVillage(key, props)} />
+          )}
         </div>
       ))}
     </div>
