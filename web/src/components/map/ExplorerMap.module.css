@@ -513,8 +513,7 @@ dl.details > div {
 }
 
 .keyScan[data-status="empty"] {
-  background: #000;
-  box-shadow: 0 0 0 1px var(--color-text-secondary);
+  background: #ff4d4d;
 }
 
 .keyTour {

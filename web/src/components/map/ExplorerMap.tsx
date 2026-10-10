@@ -127,7 +127,7 @@ const lineOpacity: ExpressionSpecification = [
   1,
 ];
 
-const SCAN_EMPTY_COLOR = "#000000";
+const SCAN_EMPTY_COLOR = "#ff4d4d";
 const markerStatus: ExpressionSpecification = ["coalesce", ["get", "status"], ""];
 const markerColor: ExpressionSpecification = [
   "match",
@@ -457,12 +457,9 @@ export default function ExplorerMap() {
         id: "dots-core",
         type: "circle",
         source: "dots",
-        // A black dot vanishes on the dark map, so empty scans get a thin light ring.
         paint: {
           "circle-radius": ["coalesce", ["get", "core"], 2.5],
           "circle-color": markerColor,
-          "circle-stroke-color": tokens.color.textSecondary,
-          "circle-stroke-width": ["match", markerStatus, "empty", 1, 0],
         },
       });
       // Invisible, bigger target so tiny markers are easy to hover and click.

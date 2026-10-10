@@ -298,7 +298,7 @@ Values in between are linear. A hovered or selected settlement goes to 0.85 what
 |-----|---------|
 | Orange | Settlements found, and at least one has a clinic route |
 | Blue | Settlements found, but no clinic was in range of any of them |
-| Black (thin light ring) | No settlements found |
+| Red | No settlements found |
 
 **Antimeridian.** Countries that cross 180° (Russia, Fiji) come split at −180 and 180. Rings wider than 180° have their western half shifted past 180°, so they do not draw as a band around the globe.
 
