@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
+import HelpScanPrompt from "@/components/help/HelpScanPrompt";
 import { problemContent, sources, type SourceId } from "@/content/problem";
 import Reveal from "./Reveal";
 import TrendChart from "./TrendChart";
@@ -23,12 +24,14 @@ function Section({
   title,
   body,
   source,
+  scan,
   children,
 }: {
   eyebrow: string;
   title: string;
   body: string[];
   source: SourceId;
+  scan: string;
   children: ReactNode;
 }) {
   return (
@@ -45,6 +48,9 @@ function Section({
           ))}
         </header>
         <div className={styles.visuals}>{children}</div>
+      </div>
+      <div className="container">
+        <HelpScanPrompt message={scan} />
       </div>
     </section>
   );
@@ -209,6 +215,7 @@ export default function ProblemPage() {
               {closing.secondaryCta.label}
             </Link>
           </div>
+          <HelpScanPrompt message={closing.scan} />
         </div>
       </section>
 

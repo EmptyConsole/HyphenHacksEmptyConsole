@@ -8,6 +8,11 @@ export const donateContent = {
   title: "Send vaccines to villages the maps left out.",
   lead:
     "Rural villages are missing from official maps, so health workers never get a route and people there go without vaccines. Your gift pays for that route.",
+  scanNeed: "These are published totals, not villages. Help us scan a region.",
+  scanWhy: "Not ready to give? Help us scan a region.",
+  scanWhere: "Finding the village comes first. Help us scan a region.",
+  scanChoose: "Can't donate? Help us scan a region.",
+  scanGovernments: "Or help us scan a region in one of these countries.",
   facts: [
     {
       value: "3.46 billion",

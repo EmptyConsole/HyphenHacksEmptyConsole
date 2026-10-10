@@ -51,6 +51,42 @@
   inset: 0;
 }
 
+.worldScan {
+  position: absolute;
+  z-index: calc(var(--z-map-overlay) + 1);
+  top: var(--space-4);
+  left: calc(300px + var(--space-8));
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(340px, calc(100% - 420px));
+  padding: 8px 14px 8px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 181, 71, 0.45);
+  background: var(--color-surface-glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-2);
+  color: var(--color-text);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  line-height: 1.25;
+  text-align: left;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.worldScan:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+.worldScanMark {
+  flex: none;
+  color: var(--color-accent);
+}
+
 .rightControls {
   position: absolute;
   /* Clear MapLibre's compact attribution ("i") control in the bottom-right. */
@@ -736,7 +772,7 @@ dl.details > div {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  max-width: 320px;
+  max-width: 340px;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-pill);
   border: 1px solid var(--color-border-strong);
@@ -745,6 +781,11 @@ dl.details > div {
   -webkit-backdrop-filter: var(--glass-blur);
   font-size: var(--text-small);
   color: var(--color-text-secondary);
+}
+
+.scanBox span {
+  min-width: 0;
+  line-height: 1.35;
 }
 
 .scanBox button {
@@ -811,6 +852,14 @@ dl.details > div {
   .hint,
   .detected {
     display: none;
+  }
+
+  .worldScan {
+    top: auto;
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: calc(var(--space-6) + 6.25rem);
+    max-width: none;
   }
 
   .rightControls {

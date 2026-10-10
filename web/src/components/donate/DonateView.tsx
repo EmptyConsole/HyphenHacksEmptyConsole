@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import HelpScanPrompt from "@/components/help/HelpScanPrompt";
 import { donateContent } from "@/content/donate";
 import { dataProvider } from "@/data";
 import ruralPopulation from "@/data/ruralPopulation.json";
@@ -132,6 +133,7 @@ export default function DonateView() {
             </article>
           ))}
         </div>
+        <HelpScanPrompt message={donateContent.scanNeed} />
       </section>
 
       <section className={styles.section} aria-labelledby="why-donate">
@@ -146,6 +148,7 @@ export default function DonateView() {
             </article>
           ))}
         </div>
+        <HelpScanPrompt message={donateContent.scanWhy} />
       </section>
 
       <section className={styles.section} aria-labelledby="where-it-goes">
@@ -162,6 +165,7 @@ export default function DonateView() {
             </article>
           ))}
         </div>
+        <HelpScanPrompt message={donateContent.scanWhere} />
       </section>
 
       <section id="choose" className={styles.section} aria-labelledby="choose-title">
@@ -282,6 +286,7 @@ export default function DonateView() {
             </dialog>
           </div>
         )}
+        <HelpScanPrompt message={donateContent.scanChoose} />
       </section>
 
       <section className={styles.section} aria-labelledby="all-governments">
@@ -346,6 +351,7 @@ export default function DonateView() {
             </table>
           </div>
         )}
+        <HelpScanPrompt message={donateContent.scanGovernments} />
       </section>
 
       <section className={styles.section} aria-labelledby="sources-title">

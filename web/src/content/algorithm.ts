@@ -19,6 +19,8 @@ export const algorithmContent = {
   title: "Algorithm",
   subtitle:
     "Seven steps, from a satellite picture to one route a team can drive to reach every village. There is no trained model. The rules are color, shape, and the roads already on the map.",
+  scanSteps: "Want to watch it run for real? Help us scan a region.",
+  scanSource: "This is the file a scan runs. Help us scan a region.",
   steps: [
     {
       id: "picture",

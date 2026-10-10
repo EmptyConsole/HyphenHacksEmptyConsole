@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import HelpScanPrompt from "@/components/help/HelpScanPrompt";
 import { algorithmContent } from "@/content/algorithm";
 import CodePanel from "./CodePanel";
 import { lineRange } from "./highlight";
@@ -135,6 +136,9 @@ export default function AlgorithmView({ source, error = null }: AlgorithmViewPro
             );
           })}
         </ol>
+        <div className={styles.scanRow}>
+          <HelpScanPrompt message={algorithmContent.scanSteps} />
+        </div>
       </div>
 
       <section id="algorithm-source" className={`container ${styles.source}`}>
@@ -145,6 +149,7 @@ export default function AlgorithmView({ source, error = null }: AlgorithmViewPro
           <p className={styles.command}>{algorithmContent.source.command}</p>
         </header>
         <CodePanel source={source} error={error} range={range} label={openStep?.title ?? null} jump={jump} />
+        <HelpScanPrompt message={algorithmContent.scanSource} />
       </section>
     </main>
   );
