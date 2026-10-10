@@ -250,7 +250,7 @@ Every polygon keeps its own route, clinic, and predicted cost, so the map can dr
 
 A separate clinic trip to every settlement double-counts the drive out and back. The tour sends **one team** out from a depot, through every settlement worth visiting, and back.
 
-Settlements under certainty **30** are skipped. They are often bare ground. The depot is the clinic that most of the remaining settlements already route from. If no clinic is in range, the depot is the settlement closest to a road.
+Settlements under certainty **30** are skipped. They are often bare ground. The depot is the clinic that most of the remaining settlements already route from. If no clinic is in range, the detector still plans a loop from the settlement closest to a road, but the map does not show it: with no clinic there is no team to send.
 
 Each leg costs the cheaper of driving (road dollars plus both off-road snaps) or a straight off-road line. Rural roads are almost all two-way, so each pair of stops uses the cheaper direction.
 
@@ -258,7 +258,7 @@ The visiting order starts as nearest-neighbor from the depot, then **2-opt** rew
 
 ### 9. Roll scans up to a country
 
-Saved scans live in `web/data/scans/`. On the map, a scanned country is drawn as those boxes, and each box opens into the detected polygons, clinic routes, and the team tour.
+Saved scans live in `web/data/scans/`. On the map, a scanned country is drawn as those boxes, and each box opens into the detected polygons with either its team tour or, when it has none, its clinic routes.
 
 Every country also gets a national estimate, scanned or not:
 
@@ -290,7 +290,7 @@ Values in between are linear. A hovered or selected settlement goes to 0.85 what
 
 **Outlines** show where a number came from. Detected areas get a solid line, and modeled ones a faint line.
 
-**Routes.** The scan view has a toggle between **Team tour** and **Clinic routes**. Only one is drawn at a time, because together they are unreadable.
+**Routes.** A scan view draws either the team tour or the clinic routes, never both, because together they are unreadable. A scan with a team tour shows the tour. A scan without one (no clinic in range, or saved before tours existed) shows the clinic routes.
 
 | | Clinic routes | Team tour |
 |---|---------------|-----------|
@@ -298,19 +298,31 @@ Values in between are linear. A hovered or selected settlement goes to 0.85 what
 | What is drawn | One trip per settlement, from its own cheapest of three nearby clinics ([step 6](#6-price-the-trip-from-a-clinic)) | One loop: clinic → every stop → clinic ([step 8](#8-plan-one-team-tour)) |
 | Start | Can differ per settlement | One depot, the clinic most settlements already route from |
 | Settlements included | All of them | Certainty 30 or more |
-| Cost shown | Folded into each settlement's estimated cost, one way | "Cheapest team tour", travel only |
+| Shown when | The scan has no team tour | The scan has a clinic in range and a saved tour |
 
-In the clinic view, a route that follows roads is a solid line. A two-point route is the straight off-road fallback, and it is dashed so nobody reads it as a road. Hovering or selecting a settlement highlights its own route. Clinics are drawn as white dots with a blue ring.
+With clinic routes, a route that follows roads is a solid line. A two-point route is the straight off-road fallback, and it is dashed so nobody reads it as a road. Hovering or selecting a settlement highlights its own route. Clinics are drawn as white dots with a blue ring.
 
-In the tour view, the loop is one amber line, and each visited settlement records its stop number.
+With the tour, the loop is one amber line. Each visited settlement records its stop number, and its card shows a tour stop such as "3 of 22", or "Not on tour".
 
 **Markers.** A 4 km scan is invisible from orbit, so scan boxes and small settlements also get a dot. On the world and country views, a scan's dot is colored by what it found:
 
 | Dot | Meaning |
 |-----|---------|
-| Orange | Settlements found, and at least one has a clinic route |
-| Blue | Settlements found, but no clinic was in range of any of them |
+| Blue | Settlements found, and at least one has a clinic route. The scan has a team tour |
+| Yellow | Settlements found, but no clinic was in range of any of them. No team tour is shown |
 | Red | No settlements found |
+
+**Costs in the panel and tooltips.** Each level shows the cost that fits it:
+
+| Where | Cost shown |
+|-------|-----------|
+| World view | Sum of every country's national estimate ([step 9](#9-roll-scans-up-to-a-country)) |
+| A country (panel or hover) | None. The national estimate is not a route, so only people are shown |
+| A scan (hover) | Team tour travel only, or "–" when there is no tour |
+| A scan (panel) | Team tour travel plus vaccination at the tour's stops, or "–" when there is no tour |
+| A settlement | Its own vaccination plus its one-way clinic trip ([steps 5–6](#5-count-people-and-the-vaccine-cost)) |
+
+Every number in the panel can be clicked for a short breakdown of how it was worked out.
 
 **Antimeridian.** Countries that cross 180° (Russia, Fiji) come split at −180 and 180. Rings wider than 180° have their western half shifted past 180°, so they do not draw as a band around the globe.
 
@@ -385,20 +397,19 @@ Hestia's $10 is spread over everyone in a settlement, so it is a planning number
 
 ### Reading a scan's numbers
 
-A scan box shows two dollar figures that measure different things. **Est. cost** is the whole bill for every settlement in the box. **Cheapest team tour** is only the travel for one team's loop.
+An open scan's **Cost** is what one team tour would spend: the travel for the loop plus vaccination at every stop on it. The **Team tour** line under it gives the travel part alone. Hovering the scan from the country view shows that travel figure too.
 
 Example from one Nigerian scan (grid cell 151-95, 30 settlements, 835 people):
 
 | Figure | How it is built | Amount |
 |--------|-----------------|--------|
-| Vaccination | 835 people × $10 + 30 stops × $100 | $11,350 |
-| Clinic trips | Each settlement's own one-way trip from its cheapest clinic, added up | $2,227 |
-| **Est. cost** | Vaccination + clinic trips | **$13,577** |
-| **Cheapest team tour** | One loop from Halimat clinic through 22 stops and back, 54.2 km ($52 road + $172 off-road) | **$224** |
+| Travel | One loop from Halimat clinic through 22 stops and back, 54.2 km ($52 road + $172 off-road) | $224 |
+| Vaccination | 695 people at those stops × $10 + 22 stops × $100 | $9,150 |
+| **Cost** | Travel + vaccination | **$9,374** |
 
-The tour skips the 8 settlements below certainty 30. Separate round trips to those same 22 stops would cost about $3,212. Sharing one drive brings that down to $224.
+The tour skips the 8 settlements below certainty 30, so their 140 people are not in the cost. Separate round trips to the same 22 stops would cost about $3,212 in travel. Sharing one drive brings that down to $224.
 
-Est. cost prices every settlement as its own trip, so it overstates travel when a team can cover the box in one loop. The tour figure is the more realistic travel cost for planning a campaign. The vaccination part is the same either way.
+A scan with a yellow dot has no clinic in range, so it has no tour and its Cost reads "–". The saved scan still records each settlement's own price (vaccination plus a one-way clinic trip), and those are shown on the settlement cards.
 
 ---
 

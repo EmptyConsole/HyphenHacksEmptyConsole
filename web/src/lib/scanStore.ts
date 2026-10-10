@@ -137,7 +137,7 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
     osmMatched,
     ...settlementCounts(collection.features),
     // Matches TOUR_VERSION in scan-batch.js.
-    tourVersion: collection.tour !== undefined ? 2 : undefined,
+    tourVersion: collection.tour !== undefined ? 3 : undefined,
     tourCostUsd: collection.tour?.costUsd ?? null,
     tourStops: collection.tour?.stops ?? 0,
   };

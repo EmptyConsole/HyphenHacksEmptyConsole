@@ -30,6 +30,25 @@ const CLOSE_RADIUS = 12;
 const MIN_PIXELS = 400;
 // A blob with no separate roof at all is bare ground or a road, not a settlement.
 const MIN_ROOF_CLUSTERS = 1;
+// Red pixels count as roof only on a sharp edge. Red laterite soil and dirt roads are
+// as red as tile roofs, but they fade gradually; a roof has a crisp outline.
+const RED_ROOF_MIN_EDGE = 18;
+// Painted or galvanized metal roofs often read teal at zoom 17: green and blue both well
+// above red and close to each other. Houses are only 4–6 px across, so they are all edge.
+const METAL_ROOF_MIN_EDGE = 12;
+// A roof cluster bigger than this is a patch of ground, not a house. ~360 px is ~500 m².
+const MAX_ROOF_CLUSTER_PX = 360;
+// Houses are rectangles, so a cluster should fill a fair share of its bounding box.
+// Soil fragments are ragged and fill little of theirs.
+const MIN_ROOF_FILL = 0.35;
+// Average width of a cluster (pixels ÷ longest side). Crop-row lines and the bright rim
+// around a dark tree are 1–2 px wide; a house is 6–10 px across. 2.5 px is ~3 m.
+const MIN_ROOF_THICKNESS_PX = 2.5;
+// A house is at most a few times longer than it is wide. Longer is a field edge or track.
+const MAX_ROOF_ASPECT = 5;
+// Below this compactness a blob is a stringy web of soil and tracks, not a village.
+// An OSM place still confirms it, but then people come from roofs only, not its size.
+const MIN_COMPACTNESS = 0.05;
 // An OSM place this close to a polygon counts as the same settlement.
 const OSM_METERS = 150;
 // Douglas–Peucker tolerance in pixels. Drops stair-steps along a straight wall.
@@ -280,15 +299,19 @@ function isDark(r, g, b) {
 }
 
 // Roof colors, checked only after vegetation, water, and darkness are rejected.
-// Red tile, pale concrete, blue corrugated metal, or flat gray that also has an edge.
+// Red tile or flat gray that also has an edge, pale concrete, blue corrugated metal,
+// or teal-looking painted metal on an edge.
 // Gray without an edge is asphalt, so it does not count as a roof by itself.
 function isRoof(r, g, b, edge) {
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
   const brightness = (r + g + b) / 3;
-  if (r > 90 && r > g + 25 && r > b + 25) return true;
+  if (r > 90 && r > g + 25 && r > b + 25 && edge >= RED_ROOF_MIN_EDGE) return true;
   if (min > 165 && max - min < 40) return true;
   if (b > 90 && b > r + 18 && b > g + 8 && brightness >= 100) return true;
+  if (g > r + 25 && b > r + 25 && Math.abs(g - b) <= 15 && brightness >= 60 && edge >= METAL_ROOF_MIN_EDGE) {
+    return true;
+  }
   return brightness > 90 && brightness < 190 && max - min < 22 && edge >= 18;
 }
 
@@ -390,16 +413,22 @@ function settlementMask(built, width, height) {
   return b;
 }
 
-// How many separate buildings sit in this blob.
+// How many separate buildings sit in this blob, and how many pixels those buildings cover.
 // Roof pixels were stored before the close, so a gap between houses still splits them.
-// A cluster under 8 pixels is glare or a speck, not a roof.
+// A cluster under 8 pixels is glare or a speck; one too big or too ragged is ground;
+// one too thin or too long is a crop-row line, a track, or the rim of a tree.
 function countRoofClusters(indices, width, height) {
   const remaining = new Set(indices);
   let clusters = 0;
+  let pixels = 0;
   const stack = [];
   for (const start of indices) {
     if (!remaining.has(start)) continue;
     let size = 0;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
     remaining.delete(start);
     stack.push(start);
     while (stack.length) {
@@ -407,6 +436,10 @@ function countRoofClusters(indices, width, height) {
       size += 1;
       const x = pixel % width;
       const y = (pixel - x) / width;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
       const neighbors = [
         [x - 1, y],
         [x + 1, y],
@@ -421,9 +454,23 @@ function countRoofClusters(indices, width, height) {
         stack.push(next);
       }
     }
-    if (size >= 8) clusters += 1;
+    const boxW = maxX - minX + 1;
+    const boxH = maxY - minY + 1;
+    const fill = size / (boxW * boxH);
+    const thickness = size / Math.max(boxW, boxH);
+    const aspect = Math.max(boxW, boxH) / Math.min(boxW, boxH);
+    if (
+      size >= 8 &&
+      size <= MAX_ROOF_CLUSTER_PX &&
+      fill >= MIN_ROOF_FILL &&
+      thickness >= MIN_ROOF_THICKNESS_PX &&
+      aspect <= MAX_ROOF_ASPECT
+    ) {
+      clusters += 1;
+      pixels += size;
+    }
   }
-  return clusters;
+  return { clusters, pixels };
 }
 
 // Stitch directed pixel edges into loops and keep the largest one.
@@ -496,7 +543,6 @@ function components(mask, roof, width, height) {
     seen[index] = 1;
     stack.push(index);
     let pixels = 0;
-    let roofPixels = 0;
     const roofIndices = [];
     const edges = [];
 
@@ -505,10 +551,7 @@ function components(mask, roof, width, height) {
       pixels += 1;
       const x = pixel % width;
       const y = (pixel - x) / width;
-      if (roof[pixel]) {
-        roofPixels += 1;
-        roofIndices.push(pixel);
-      }
+      if (roof[pixel]) roofIndices.push(pixel);
 
       const left = x > 0 && mask[pixel - 1];
       const right = x + 1 < width && mask[pixel + 1];
@@ -541,11 +584,13 @@ function components(mask, roof, width, height) {
     if (pixels < MIN_PIXELS) continue;
     const ring = outerRing(height, edges);
     if (!ring) continue;
+    // Only pixels in house-like clusters count toward the roof share.
+    const roofs = countRoofClusters(roofIndices, width, height);
     found.push({
       ring,
       pixels,
-      roofPixels,
-      buildings: countRoofClusters(roofIndices, width, height),
+      roofPixels: roofs.pixels,
+      buildings: roofs.clusters,
     });
   }
   return found;
@@ -1623,6 +1668,9 @@ async function main() {
 
     // Inside the polygon, or within 150 m, this place confirms the village.
     const place = nearestPlace(geographic, places);
+    // A stringy web of soil and tracks. Keep it only if OSM says people live there.
+    const stringy = stats.compactness < MIN_COMPACTNESS;
+    if (stringy && !place) continue;
     // Share of the blob that looked like a roof. Roads and fields score low here.
     const roofShare = blob.pixels === 0 ? 0 : blob.roofPixels / blob.pixels;
     // A matched OSM place is 100. Anything else is a satellite guess, never 100.
@@ -1630,7 +1678,8 @@ async function main() {
       ? 100
       : satelliteCertainty(blob.buildings, stats.compactness, roofShare);
     // People from roofs and from settlement area. The larger figure is kept.
-    const population = estimatePopulation(blob.buildings, stats.area);
+    // A stringy outline's area is mostly empty ground, so it counts roofs only.
+    const population = estimatePopulation(blob.buildings, stringy ? 0 : stats.area);
     const healthcareUsd = healthcareCost(population);
 
     // Round so coordinates stay readable. Six decimals is about 0.1 m.

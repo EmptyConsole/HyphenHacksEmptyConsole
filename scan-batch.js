@@ -5,6 +5,7 @@
 //   node scan-batch.js --hours 3
 //   node scan-batch.js --hours 3 --grid 566     # cover one country box by box (566 = Nigeria)
 //   node scan-batch.js --hours 3 --grid 566 --shard 2/4   # this computer takes share 2 of 4
+//   node scan-batch.js --rescan 566-mv2suz0a              # re-run saved scans by id, then stop
 //
 // Box picking: a random point inside the country's border, then a random OSM
 // village or hamlet near that point. The box is centered on that village, so there
@@ -42,7 +43,8 @@ const PAUSE_MS = 15000;
 const CLINIC_RANGE_KM = 40;
 // Bump when the detector's team-tour output changes; grid-country scans below it are re-run.
 // 2: settlements need at least one roof cluster, so tours and totals changed.
-const TOUR_VERSION = 2;
+// 3: red roofs need a sharp edge, roof clusters must be house-sized, stringy blobs dropped.
+const TOUR_VERSION = 3;
 // Wait before retrying a box that failed because Overpass was busy.
 const BUSY_RETRY_MS = 45000;
 // Longest wait after failures in a row, before trying the next grid cell.
@@ -92,6 +94,7 @@ function readArgs(argv) {
   };
   const hours = Number(value("--hours") ?? 3);
   const grid = value("--grid");
+  const rescan = value("--rescan")?.split(",").filter(Boolean);
   const shardMatch = /^(\d+)\/(\d+)$/.exec(value("--shard") ?? "1/1");
   const shard = shardMatch ? { index: Number(shardMatch[1]), count: Number(shardMatch[2]) } : null;
   if (
@@ -105,7 +108,7 @@ function readArgs(argv) {
     console.error("Usage: node scan-batch.js --hours 3 [--grid COUNTRY_ID] [--shard K/N]");
     process.exit(1);
   }
-  return { hours, grid, shard };
+  return { hours, grid, shard, rescan };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -469,6 +472,39 @@ function outdatedReason(meta, gridCountryId) {
   return null;
 }
 
+// Run the detector again on a saved scan's box and overwrite it in place.
+async function rerun(meta, metaPath, reason) {
+  log(`${meta.countryName}: re-running ${meta.id} for ${reason}`);
+  try {
+    let { collection, stderr } = await runDetectorRetrying({ name: meta.countryName }, meta.bbox);
+    if (/(clinics|roads) unavailable/.test(stderr)) {
+      log(`${meta.countryName}: clinics or roads missing, retrying in ${BUSY_RETRY_MS / 1000}s`);
+      await sleep(BUSY_RETRY_MS);
+      ({ collection } = await runDetectorRetrying({ name: meta.countryName }, meta.bbox));
+    }
+    const updated = {
+      ...meta,
+      clinicRangeKm: CLINIC_RANGE_KM,
+      updatedAt: new Date().toISOString(),
+      ...summarize(collection),
+    };
+    writeAtomic(join(OUT_DIR, `${meta.id}.json`), collection);
+    writeAtomic(metaPath, updated);
+    log(`${meta.countryName}: updated ${meta.id} (${updated.villages} villages, ${updated.population} people)`);
+    return true;
+  } catch (error) {
+    log(`${meta.countryName}: re-run of ${meta.id} failed: ${error.message}`);
+    return false;
+  }
+}
+
+// Re-run one saved scan with the current detector. Same id, box and label.
+async function rescanById(id) {
+  const file = join(OUT_DIR, `${id}.meta.json`);
+  const meta = JSON.parse(readFileSync(file, "utf8"));
+  await rerun(meta, file, "a requested re-run");
+}
+
 async function rescanOutdated(deadline, onlyCountryId, shard = { index: 1, count: 1 }) {
   for (const file of readdirSync(OUT_DIR)) {
     if (!file.endsWith(".meta.json") || Date.now() > deadline) continue;
@@ -476,32 +512,13 @@ async function rescanOutdated(deadline, onlyCountryId, shard = { index: 1, count
     if (onlyCountryId && meta.countryId !== onlyCountryId) continue;
     const reason = outdatedReason(meta, onlyCountryId);
     if (!reason || shardOfId(meta.id, shard.count) !== shard.index) continue;
-    log(`${meta.countryName}: re-running ${meta.id} for ${reason}`);
-    try {
-      let { collection, stderr } = await runDetectorRetrying({ name: meta.countryName }, meta.bbox);
-      if (/(clinics|roads) unavailable/.test(stderr)) {
-        log(`${meta.countryName}: clinics or roads missing, retrying in ${BUSY_RETRY_MS / 1000}s`);
-        await sleep(BUSY_RETRY_MS);
-        ({ collection } = await runDetectorRetrying({ name: meta.countryName }, meta.bbox));
-      }
-      const updated = {
-        ...meta,
-        clinicRangeKm: CLINIC_RANGE_KM,
-        updatedAt: new Date().toISOString(),
-        ...summarize(collection),
-      };
-      writeAtomic(join(OUT_DIR, `${meta.id}.json`), collection);
-      writeAtomic(join(OUT_DIR, file), updated);
-      log(`${meta.countryName}: updated ${meta.id} (${updated.villages} villages, ${updated.population} people)`);
-    } catch (error) {
-      log(`${meta.countryName}: re-run of ${meta.id} failed: ${error.message}`);
-    }
+    await rerun(meta, join(OUT_DIR, file), reason);
     await sleep(PAUSE_MS);
   }
 }
 
 async function main() {
-  const { hours, grid, shard } = readArgs(process.argv);
+  const { hours, grid, shard, rescan } = readArgs(process.argv);
   const deadline = Date.now() + hours * 3600 * 1000;
   mkdirSync(OUT_DIR, { recursive: true });
 
@@ -509,6 +526,11 @@ async function main() {
   const shapes = new Map(
     feature(topo, topo.objects.countries).features.map((f) => [String(f.id), f.geometry])
   );
+
+  if (rescan) {
+    for (const id of rescan) await rescanById(id);
+    return;
+  }
 
   await rescanOutdated(deadline, grid, shard);
 
