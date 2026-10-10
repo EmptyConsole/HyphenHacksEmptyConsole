@@ -140,8 +140,8 @@ const markerColor: ExpressionSpecification = [
   "empty",
   SCAN_EMPTY_COLOR,
   "noClinic",
-  tokens.color.constellation,
   tokens.color.accent,
+  tokens.color.constellation,
 ];
 
 /** Detected areas get a solid constellation outline; modeled ones a faint one. */

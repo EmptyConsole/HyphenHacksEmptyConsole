@@ -583,11 +583,11 @@ dl.details > div {
   height: 8px;
   max-width: 8px;
   border-radius: 50%;
-  background: var(--color-accent);
+  background: var(--color-constellation);
 }
 
 .keyScan[data-status="noClinic"] {
-  background: var(--color-constellation);
+  background: var(--color-accent);
 }
 
 .keyScan[data-status="empty"] {
