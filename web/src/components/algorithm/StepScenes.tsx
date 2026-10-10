@@ -298,59 +298,80 @@ function TripScene() {
   );
 }
 
-const PLACES = [
-  { id: "north", name: "North hamlet", people: 30, trip: 80, note: "Recommended. Reaching 30 people here costs the least." },
-  { id: "river", name: "River village", people: 80, trip: 160, note: "The most people, and the highest bill. A later stop." },
-  { id: "hill", name: "Hill cluster", people: 15, trip: 320, note: "The fewest people, but the hard trip costs more than the vaccines." },
+/** Illustrative layout: a clinic (index 0) and six villages. 10 units = 1 km. */
+const TOUR_POINTS: [number, number][] = [
+  [24, 70], [75, 117], [174, 119], [124, 31], [152, 42], [84, 32], [106, 98],
+];
+const TOUR_USD_PER_KM = 2;
+const TOURS = [
+  {
+    id: "greedy",
+    name: "Nearest stop first",
+    order: [0, 1, 6, 3, 4, 5, 2, 0],
+    note: "Always driving to the closest village left looks sensible, but the route doubles back and crosses itself.",
+  },
+  {
+    id: "improved",
+    name: "After 2-opt",
+    order: [0, 5, 3, 4, 2, 6, 1, 0],
+    note: "2-opt reverses any stretch of the loop that makes it cheaper, until no swap helps. Same villages, no crossings.",
+  },
 ] as const;
 
-function vaccineCost(people: number) {
-  return people * 10 + 100;
+function tourKm(order: readonly number[]) {
+  let units = 0;
+  for (let i = 1; i < order.length; i++) {
+    const [ax, ay] = TOUR_POINTS[order[i - 1]];
+    const [bx, by] = TOUR_POINTS[order[i]];
+    units += Math.hypot(bx - ax, by - ay);
+  }
+  return Math.round(units / 10);
 }
 
-function PickScene() {
-  const places = PLACES.map((place) => {
-    const vaccines = vaccineCost(place.people);
-    return { ...place, vaccines, total: vaccines + place.trip };
+function TourScene() {
+  const tours = TOURS.map((tour) => {
+    const km = tourKm(tour.order);
+    return { ...tour, km, cost: km * TOUR_USD_PER_KM };
   });
-  const lowest = Math.min(...places.map((place) => place.total));
-  const [selected, setSelected] = useState(places.find((place) => place.total === lowest)?.id ?? places[0].id);
-  const current = places.find((place) => place.id === selected) ?? places[0];
-  const max = Math.max(...places.map((place) => place.total));
+  const lowest = Math.min(...tours.map((tour) => tour.cost));
+  const [selected, setSelected] = useState<string>(tours[0].id);
+  const current = tours.find((tour) => tour.id === selected) ?? tours[0];
+  const d = current.order.map((k, i) => `${i ? "L" : "M"} ${TOUR_POINTS[k][0]} ${TOUR_POINTS[k][1]}`).join(" ");
 
   return (
     <div className={styles.scene}>
-      <ul className={styles.places}>
-        {places.map((place) => (
-          <li key={place.id}>
-            <button
-              type="button"
-              className={styles.place}
-              data-on={selected === place.id || undefined}
-              data-best={place.total === lowest || undefined}
-              aria-pressed={selected === place.id}
-              onClick={() => setSelected(place.id)}
-            >
-              <span className={styles.choiceName}>
-                {place.name}
-                {place.total === lowest && <span className={styles.badge}>First stop</span>}
-              </span>
-              <span className={styles.meter} style={{ "--fill": place.total / max } as CSSProperties}>
-                <span />
-              </span>
-              <span className={styles.choiceCost}>{usd(place.total)}</span>
-            </button>
-          </li>
+      <div className={styles.diagram}>
+        <span>Clinic</span>
+        <svg viewBox="0 0 220 140" aria-hidden="true">
+          <path key={current.id} className={styles.path} data-on d={d} pathLength={1} />
+          <circle className={styles.clinicDot} cx={TOUR_POINTS[0][0]} cy={TOUR_POINTS[0][1]} r="5" />
+          {TOUR_POINTS.slice(1).map(([x, y]) => (
+            <circle key={`${x},${y}`} className={styles.villageDot} cx={x} cy={y} r="5" />
+          ))}
+        </svg>
+        <span>6 villages</span>
+      </div>
+      <div className={styles.choices} role="group" aria-label="Tour order">
+        {tours.map((tour) => (
+          <button
+            key={tour.id}
+            type="button"
+            className={styles.choice}
+            data-on={selected === tour.id || undefined}
+            aria-pressed={selected === tour.id}
+            onClick={() => setSelected(tour.id)}
+          >
+            <span className={styles.choiceName}>
+              {tour.name}
+              {tour.cost === lowest && <span className={styles.badge}>Lowest</span>}
+            </span>
+            <span className={styles.choiceMeta}>{tour.km} km round trip</span>
+            <span className={styles.choiceCost}>
+              {tour.km} × ${TOUR_USD_PER_KM.toFixed(2)} = {usd(tour.cost)}
+            </span>
+          </button>
         ))}
-      </ul>
-      <p className={styles.formula}>
-        <span>
-          {current.people} people → vaccines <strong>{usd(current.vaccines)}</strong>
-        </span>
-        <span>
-          vaccines {usd(current.vaccines)} + trip {usd(current.trip)} = <strong>{usd(current.total)}</strong>
-        </span>
-      </p>
+      </div>
       <p className={styles.sceneNote}>{current.note}</p>
     </div>
   );
@@ -363,7 +384,7 @@ const SCENES: Record<StepId, () => ReactElement> = {
   check: CheckScene,
   cost: CostScene,
   trip: TripScene,
-  pick: PickScene,
+  tour: TourScene,
 };
 
 export default function StepScene({ id }: { id: StepId }) {

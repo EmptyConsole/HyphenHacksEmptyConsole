@@ -3,7 +3,7 @@
  * detect-villages.js; the page highlights from `start` through `end`.
  */
 
-export type StepId = "picture" | "roofs" | "join" | "check" | "cost" | "trip" | "pick";
+export type StepId = "picture" | "roofs" | "join" | "check" | "cost" | "trip" | "tour";
 
 export type AlgorithmStep = {
   id: StepId;
@@ -18,7 +18,7 @@ export const algorithmContent = {
   eyebrow: "The algorithm",
   title: "Algorithm",
   subtitle:
-    "Seven steps, from a satellite picture to the village a team should reach first. There is no trained model. The rules are color, shape, and the roads already on the map.",
+    "Seven steps, from a satellite picture to one route a team can drive to reach every village. There is no trained model. The rules are color, shape, and the roads already on the map.",
   steps: [
     {
       id: "picture",
@@ -32,9 +32,9 @@ export const algorithmContent = {
     {
       id: "roofs",
       title: "Keep the roofs",
-      text: "Trees, water, and shadow are dropped. Roof colors and hard edges stay.",
+      text: "Trees, water, and shadow are dropped. Roof colors on sharp edges stay.",
       detail:
-        "Red tile, pale concrete, and blue metal count as roofs. Flat gray only counts when it has an edge, so a road is not mistaken for a house.",
+        "Pale concrete and blue or teal metal count as roofs. Red and flat gray only count on a sharp edge: red soil, dirt roads, and asphalt are the same colors, but they fade gradually where a roof has a crisp outline.",
       start: "Brightness difference between this pixel",
       end: "return { built, roof };",
     },
@@ -43,7 +43,7 @@ export const algorithmContent = {
       title: "Join roofs into a village",
       text: "Roofs within about 30 meters of each other become one settlement, and the outline is traced.",
       detail:
-        "Speckles are wiped away first. Anything smaller than about 500 square meters, like a lone shed, is left out.",
+        "A settlement needs at least one roof that is house-shaped: compact, at least about 3.5 meters wide, and no bigger than about 500 square meters. Thin crop rows, tree edges, and big patches of bare ground fail that test. Stringy outlines that snake along tracks are dropped too, unless OpenStreetMap names the place.",
       start: "Turn scattered building pixels into settlement blobs.",
       end: "return found;",
     },
@@ -75,13 +75,13 @@ export const algorithmContent = {
       end: "return { perKm, slow };",
     },
     {
-      id: "pick",
-      title: "Recommend the cheapest place",
-      text: "Vaccine cost plus the trip is the predicted cost. The lowest one is the place to reach first.",
+      id: "tour",
+      title: "Plan one team tour",
+      text: "One team leaves the clinic, visits every settlement, and comes back, in the order that costs the least.",
       detail:
-        "Every settlement keeps its own route, so a map can draw all of them. The recommendation is the polygon where that sum is lowest.",
-      start: "Route every village, then keep the polygon whose predicted cost is lowest.",
-      end: "clinic: best.clinic,",
+        "Hestia starts by always driving to the nearest village left, then improves the order with 2-opt: it reverses any stretch of the loop that makes the whole trip cheaper. Settlements with certainty under 30 are left out, since they are often bare ground.",
+      start: "// --- Team tour ---",
+      end: "route: { type: \"LineString\", coordinates },",
     },
   ] satisfies AlgorithmStep[],
   source: {

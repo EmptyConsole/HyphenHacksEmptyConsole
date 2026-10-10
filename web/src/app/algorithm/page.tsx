@@ -5,7 +5,7 @@ import AlgorithmView from "@/components/algorithm/AlgorithmView";
 
 export const metadata: Metadata = {
   title: "Algorithm — Hestia",
-  description: "The seven steps Hestia uses to find a village and price a route from the nearest clinic.",
+  description: "The seven steps Hestia uses to find villages and plan one route from the nearest clinic that reaches them all.",
 };
 
 function readAlgorithmSource() {
