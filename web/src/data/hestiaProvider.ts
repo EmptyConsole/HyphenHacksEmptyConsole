@@ -11,6 +11,7 @@ import type {
   RouteCollection,
   ScanMeta,
   ScanRequest,
+  TourLayer,
   VillageLayer,
 } from "./types";
 
@@ -49,9 +50,26 @@ interface DetectedVillage {
     travelMeters?: number;
     offroadMeters?: number;
     slowMeters?: number;
+    tourStop?: number;
     route?: { type: "LineString"; coordinates: [number, number][] };
     clinic?: { name: string | null; lon: number; lat: number; osmId: number } | null;
   };
+}
+
+/** The `tour` object detect-villages.js writes next to the features. */
+interface DetectedTour {
+  depot: { kind: "clinic" | "settlement"; name: string | null };
+  minCertainty: number;
+  stops: number;
+  skipped: number;
+  order: number[];
+  costUsd: number;
+  roadUsd: number;
+  offroadUsd: number;
+  roadMeters: number;
+  offroadMeters: number;
+  greedyUsd: number;
+  route: { type: "LineString"; coordinates: [number, number][] };
 }
 
 let scans: ScanMeta[] = [];
@@ -138,7 +156,7 @@ function scanRegions(country: AreaFeature): AreaCollection {
 async function scanVillages(scanId: string): Promise<VillageLayer> {
   const response = await fetch(`/api/scans/${encodeURIComponent(scanId)}`);
   if (!response.ok) throw new Error(`scan ${scanId}: ${response.status}`);
-  const detected = (await response.json()) as { features: DetectedVillage[] };
+  const detected = (await response.json()) as { features: DetectedVillage[]; tour?: DetectedTour | null };
 
   const areas: AreaCollection = { type: "FeatureCollection", features: [] };
   const routes: RouteCollection = { type: "FeatureCollection", features: [] };
@@ -148,7 +166,10 @@ async function scanVillages(scanId: string): Promise<VillageLayer> {
 
   detected.features.forEach((v, i) => {
     const p = v.properties;
+    // A blob with no roof cluster is not a settlement. Newer scans drop these already.
+    if (p.buildings === 0) return;
     const id = `${scanId}/${i + 1}`;
+    const [lon, lat] = ringCenter(v.geometry.coordinates[0]);
     areas.features.push({
       type: "Feature",
       geometry: v.geometry,
@@ -174,6 +195,9 @@ async function scanVillages(scanId: string): Promise<VillageLayer> {
         travel_m: p.travelMeters,
         offroad_m: p.offroadMeters,
         slow_m: p.slowMeters,
+        tour_stop: p.tourStop,
+        lon,
+        lat,
       },
     });
     const line = p.route?.coordinates ?? [];
@@ -194,7 +218,46 @@ async function scanVillages(scanId: string): Promise<VillageLayer> {
       });
     }
   });
-  return { areas, routes, clinics };
+  return { areas, routes, clinics, tour: detected.tour ? tourLayer(detected.tour, detected.features) : null };
+}
+
+/** Average of the ring's corners, the same point detect-villages.js routes to. */
+function ringCenter(ring: number[][]): [number, number] {
+  const closed = ring.length > 1 && ring[0][0] === ring.at(-1)![0] && ring[0][1] === ring.at(-1)![1];
+  const count = closed ? ring.length - 1 : ring.length;
+  let lon = 0;
+  let lat = 0;
+  for (let i = 0; i < count; i++) {
+    lon += ring[i][0];
+    lat += ring[i][1];
+  }
+  return [lon / count, lat / count];
+}
+
+function tourLayer(t: DetectedTour, villages: DetectedVillage[]): TourLayer {
+  const visited = t.order.map((i) => villages[i].properties);
+  return {
+    summary: {
+      depotKind: t.depot.kind,
+      depotName: t.depot.name,
+      stops: t.stops,
+      skipped: t.skipped,
+      minCertainty: t.minCertainty,
+      costUsd: t.costUsd,
+      roadUsd: t.roadUsd,
+      offroadUsd: t.offroadUsd,
+      roadMeters: t.roadMeters,
+      offroadMeters: t.offroadMeters,
+      greedyUsd: t.greedyUsd,
+      vaccinationUsd: visited.reduce((sum, v) => sum + v.healthcareUsd, 0),
+      // reachUsd is one way from the clinic, so a round trip is about twice that.
+      separateTripsUsd: visited.reduce((sum, v) => sum + 2 * (v.reachUsd ?? 0), 0),
+    },
+    line: {
+      type: "FeatureCollection",
+      features: [{ type: "Feature", properties: {}, geometry: t.route }],
+    },
+  };
 }
 
 const EMPTY_ROUTES: RouteCollection = { type: "FeatureCollection", features: [] };
@@ -236,7 +299,7 @@ export const hestiaProvider: MapDataProvider = {
     return memo(villageCache, id, async () =>
       id.startsWith(SCAN_PREFIX)
         ? scanVillages(id.slice(SCAN_PREFIX.length))
-        : { areas: fillerChildren(region), routes: EMPTY_ROUTES, clinics: EMPTY_CLINICS },
+        : { areas: fillerChildren(region), routes: EMPTY_ROUTES, clinics: EMPTY_CLINICS, tour: null },
     );
   },
 

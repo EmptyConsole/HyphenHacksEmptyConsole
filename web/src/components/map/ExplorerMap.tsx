@@ -31,17 +31,25 @@ import {
   type AreaFeature,
   type AreaProperties,
   type ScanMeta,
+  type TourSummary,
   type VillageLayer,
 } from "@/data";
 import { baselineConfig } from "@/data/baselineConfig";
 import { tokens } from "@/design/tokens";
 import { formatCost, formatPopulation } from "@/lib/format";
 import { tileCount } from "@/lib/tiles";
-import { getBaseStyle, intensityColor, type MapTheme } from "./mapStyle";
+import {
+  getBaseStyle,
+  intensityColor,
+  MAP_THEMES,
+  type MapTheme,
+} from "./mapStyle";
 import styles from "./ExplorerMap.module.css";
 import {
   explainStat,
+  explainTour,
   explainVillage,
+  formatLatLon,
   type Explanation,
   type PanelContext,
   type StatKey,
@@ -58,6 +66,36 @@ const LEVEL_LABEL = ["World", "Country", "Region"] as const;
 const CHILD_LABEL = ["countries", "regions", "villages"] as const;
 /** The scan button appears from this zoom; below it the view is far too big to scan. */
 const SCAN_MIN_ZOOM = 8;
+
+const hovered: ExpressionSpecification = [
+  "boolean",
+  ["feature-state", "hover"],
+  false,
+];
+const isSelected: ExpressionSpecification = [
+  "boolean",
+  ["feature-state", "selected"],
+  false,
+];
+const detected: ExpressionSpecification = [
+  "==",
+  ["get", "data_source"],
+  "detected",
+];
+
+/** Detected areas get a solid constellation outline; modeled ones a faint one. */
+function areaLineColor(theme: MapTheme): ExpressionSpecification {
+  return [
+    "case",
+    hovered,
+    tokens.color.accent,
+    isSelected,
+    tokens.color.accent,
+    detected,
+    tokens.color.constellation,
+    MAP_THEMES[theme].modeledLine,
+  ];
+}
 
 type Hover =
   | {
@@ -181,6 +219,8 @@ export default function ExplorerMap() {
   const [scan, setScan] = useState<ScanState>({ status: "idle" });
   const [now, setNow] = useState(() => Date.now());
   const [mapTheme, setMapTheme] = useState<MapTheme>("dark");
+  /** Which routes the village view draws: the one-team tour, or each settlement's clinic route. */
+  const [routeMode, setRouteMode] = useState<"tour" | "clinic">("tour");
 
   /** Which number's explanation is open, e.g. "stat:cost" or "village:reach". */
   const [explain, setExplain] = useState<string | null>(null);
@@ -191,14 +231,14 @@ export default function ExplorerMap() {
 
   const syncMapTheme = useCallback((theme: MapTheme) => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    // Not isStyleLoaded(): it stays false while tiles load, which would drop the change.
+    if (!map || !map.getLayer("areas-line")) return;
 
-    const dark = theme === "dark";
-    map.setPaintProperty("osm", "raster-brightness-min", dark ? 0.92 : 0);
-    map.setPaintProperty("osm", "raster-brightness-max", dark ? 0.04 : 1);
-    map.setPaintProperty("osm", "raster-hue-rotate", dark ? 180 : 0);
-    map.setPaintProperty("osm", "raster-saturation", dark ? -0.55 : 0);
-    map.setPaintProperty("osm", "raster-contrast", dark ? 0.1 : 0);
+    const { background, raster } = MAP_THEMES[theme];
+    map.setPaintProperty("background", "background-color", background);
+    for (const key of Object.keys(raster) as (keyof typeof raster)[])
+      map.setPaintProperty("osm", key, raster[key]);
+    map.setPaintProperty("areas-line", "line-color", areaLineColor(theme));
   }, []);
 
   const level = trail.length;
@@ -252,22 +292,7 @@ export default function ExplorerMap() {
       map.addSource("dots", { type: "geojson", data: EMPTY });
       map.addSource("routes", { type: "geojson", data: EMPTY });
       map.addSource("clinics", { type: "geojson", data: EMPTY });
-
-      const hovered: ExpressionSpecification = [
-        "boolean",
-        ["feature-state", "hover"],
-        false,
-      ];
-      const isSelected: ExpressionSpecification = [
-        "boolean",
-        ["feature-state", "selected"],
-        false,
-      ];
-      const detected: ExpressionSpecification = [
-        "==",
-        ["get", "data_source"],
-        "detected",
-      ];
+      map.addSource("tour", { type: "geojson", data: EMPTY });
 
       map.addLayer({
         id: "areas-fill",
@@ -284,17 +309,7 @@ export default function ExplorerMap() {
         type: "line",
         source: "areas",
         paint: {
-          // Detected areas get a solid constellation outline; modeled ones a faint one.
-          "line-color": [
-            "case",
-            hovered,
-            tokens.color.accent,
-            isSelected,
-            tokens.color.accent,
-            detected,
-            tokens.color.constellation,
-            "rgba(255,255,255,0.28)",
-          ],
+          "line-color": areaLineColor("dark"),
           "line-width": ["case", hovered, 2, detected, 1.6, 0.6],
         },
       });
@@ -336,6 +351,21 @@ export default function ExplorerMap() {
         filter: ["==", ["get", "villageId"], ""],
         layout: { "line-join": "round", "line-cap": "round" },
         paint: { "line-color": tokens.color.accent, "line-width": 3 },
+      });
+      // The team tour: one loop from the clinic through every settlement and back.
+      map.addLayer({
+        id: "tour-casing",
+        type: "line",
+        source: "tour",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": tokens.color.bg, "line-width": 5, "line-opacity": 0.6 },
+      });
+      map.addLayer({
+        id: "tour-line",
+        type: "line",
+        source: "tour",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": tokens.color.accent, "line-width": 2.5 },
       });
       map.addLayer({
         id: "dots-halo",
@@ -521,7 +551,7 @@ export default function ExplorerMap() {
         } else {
           const villages = await dataProvider.getVillages(trail[1]);
           fc = villages.areas;
-          layer = { routes: villages.routes, clinics: villages.clinics };
+          layer = { routes: villages.routes, clinics: villages.clinics, tour: villages.tour };
           fresh =
             (await dataProvider.getRegions(trail[0])).features.find(
               (f) => f.properties.id === parent.properties.id,
@@ -557,6 +587,9 @@ export default function ExplorerMap() {
       (map.getSource("clinics") as GeoJSONSource).setData(
         layer?.clinics ?? EMPTY,
       );
+      (map.getSource("tour") as GeoJSONSource).setData(
+        layer?.tour?.line ?? EMPTY,
+      );
 
       const cameraKey = trail.map((f) => f.properties.id).join("|");
       if (cameraKey !== cameraKeyRef.current) {
@@ -581,6 +614,18 @@ export default function ExplorerMap() {
       cancelled = true;
     };
   }, [ready, trail, level, dataVersion]);
+
+  // ---- Team tour or clinic routes, never both: together they are unreadable ----
+  const showTour = routeMode === "tour" && !!extras?.tour;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const visible = (on: boolean) => (on ? "visible" : "none");
+    for (const id of ["tour-casing", "tour-line"]) map.setLayoutProperty(id, "visibility", visible(showTour));
+    for (const id of ["routes-road", "routes-offroad", "routes-active"]) {
+      map.setLayoutProperty(id, "visibility", visible(!showTour));
+    }
+  }, [ready, showTour]);
 
   // ---- Selected village highlight and its route ----
   useEffect(() => {
@@ -723,7 +768,7 @@ export default function ExplorerMap() {
     viewTiles !== null && viewTiles <= baselineConfig.maxScanTiles;
 
   return (
-    <div className={styles.wrap}>
+    <div className={styles.wrap} data-theme={mapTheme}>
       <div ref={containerRef} className={styles.map} />
 
       <aside className={styles.panel} aria-live="polite">
@@ -812,12 +857,40 @@ export default function ExplorerMap() {
           <ExplainBox explanation={explainStat("detected", panelContext)} />
         )}
 
+        {level === 2 && detectedHere && extras?.tour && (
+          <>
+            <button
+              className={styles.detected}
+              aria-expanded={explain === "stat:tour"}
+              onClick={() => toggleExplain("stat:tour")}
+            >
+              <strong>Cheapest team tour</strong>
+              {formatCost(extras.tour.summary.costUsd)} ·{" "}
+              {((extras.tour.summary.roadMeters + extras.tour.summary.offroadMeters) / 1000).toFixed(1)} km ·{" "}
+              {extras.tour.summary.stops} stops
+            </button>
+            {explain === "stat:tour" && <ExplainBox explanation={explainTour(extras.tour.summary)} />}
+            <div className={styles.routeToggle} role="group" aria-label="Routes shown">
+              <button aria-pressed={routeMode === "tour"} onClick={() => setRouteMode("tour")}>
+                Team tour
+              </button>
+              <button aria-pressed={routeMode === "clinic"} onClick={() => setRouteMode("clinic")}>
+                Clinic routes
+              </button>
+            </div>
+          </>
+        )}
+        {level === 2 && detectedHere && !extras?.tour && (
+          <p className={styles.hint}>No team tour for this scan yet. It gets one when the batch re-runs it.</p>
+        )}
+
         {selected && (
           <div className={styles.selected}>
             <p className="eyebrow">Selected</p>
             <strong>{selected.name}</strong>
             <VillageDetails
               props={selected}
+              tour={extras?.tour?.summary ?? null}
               open={explain}
               onToggle={toggleExplain}
             />
@@ -838,7 +911,12 @@ export default function ExplorerMap() {
             <li>
               <i className={styles.keyModeled} /> Modeled estimate
             </li>
-            {extras && extras.routes.features.length > 0 && (
+            {showTour && (
+              <li>
+                <i className={styles.keyTour} /> Team tour (clinic → every stop → clinic)
+              </li>
+            )}
+            {!showTour && extras && extras.routes.features.length > 0 && (
               <>
                 <li>
                   <i className={styles.keyRoute} /> Road route from clinic
@@ -1000,17 +1078,23 @@ function VillageSummary({ props }: { props: AreaProperties }) {
 /** Every number for the selected village; each row opens an explanation of itself. */
 function VillageDetails({
   props,
+  tour,
   open,
   onToggle,
 }: {
   props: AreaProperties;
+  tour: TourSummary | null;
   open: string | null;
   onToggle: (key: string) => void;
 }) {
-  const rows: [VillageKey, string, ReactNode][] = [
+  const rows: [VillageKey, string, ReactNode][] = [];
+  if (props.lat !== undefined && props.lon !== undefined) {
+    rows.push(["location", "Location", formatLatLon(props.lat, props.lon)]);
+  }
+  rows.push(
     ["population", "Population", formatPopulation(props.estimated_population)],
     ["cost", "Cost", formatCost(props.estimated_cost)],
-  ];
+  );
   if (props.certainty !== undefined) {
     rows.push(
       [
@@ -1033,6 +1117,11 @@ function VillageDetails({
           : "–",
       ],
       ["clinic", "Clinic", props.clinic_name ?? "none in range"],
+      [
+        "tour",
+        "Tour stop",
+        !tour ? "–" : props.tour_stop !== undefined ? `${props.tour_stop} of ${tour.stops}` : "skipped",
+      ],
     );
   }
   return (
@@ -1048,7 +1137,7 @@ function VillageDetails({
             <span>{value}</span>
           </button>
           {open === `village:${key}` && (
-            <ExplainBox explanation={explainVillage(key, props)} />
+            <ExplainBox explanation={explainVillage(key, props, tour)} />
           )}
         </div>
       ))}

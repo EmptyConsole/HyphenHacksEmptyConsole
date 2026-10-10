@@ -35,6 +35,9 @@ const PAUSE_MS = 15000;
 // Must match CLINIC_PAD_DEG in detect-villages.js (0.36° ≈ 40 km). Saved scans with a
 // smaller `clinicRangeKm` are re-run at startup so every scan uses the same clinic search.
 const CLINIC_RANGE_KM = 40;
+// Bump when the detector's team-tour output changes; grid-country scans below it are re-run.
+// 2: settlements need at least one roof cluster, so tours and totals changed.
+const TOUR_VERSION = 2;
 // Wait before retrying a box that failed because Overpass was busy.
 const BUSY_RETRY_MS = 45000;
 // A box that takes longer than this is abandoned.
@@ -249,7 +252,15 @@ function summarize(collection) {
     costUsd += f.properties.predictedCostUsd ?? f.properties.healthcareUsd ?? 0;
     if (f.properties.source === "osm") osmMatched += 1;
   }
-  return { villages: collection.features.length, population, costUsd, osmMatched };
+  return {
+    villages: collection.features.length,
+    population,
+    costUsd,
+    osmMatched,
+    tourVersion: collection.tour !== undefined ? TOUR_VERSION : undefined,
+    tourCostUsd: collection.tour?.costUsd ?? null,
+    tourStops: collection.tour?.stops ?? 0,
+  };
 }
 
 function existingCounts() {
@@ -402,15 +413,26 @@ async function scanGrid(countryId, shapes, deadline) {
   return saved;
 }
 
-// Re-run saved scans made with an older, smaller clinic radius. Same id, box and label,
-// so the map updates in place.
+// Why a saved scan needs re-running, or null when it is current. Same id, box and label
+// on re-run, so the map updates in place. Team tours are only required in grid mode.
+function outdatedReason(meta, gridCountryId) {
+  if ((meta.clinicRangeKm ?? CLINIC_RANGE_KM) < CLINIC_RANGE_KM) {
+    return `the ${CLINIC_RANGE_KM} km clinic radius`;
+  }
+  if (gridCountryId && meta.countryId === gridCountryId && (meta.tourVersion ?? 0) < TOUR_VERSION) {
+    return "the current team tour and settlement rules";
+  }
+  return null;
+}
+
 async function rescanOutdated(deadline, onlyCountryId) {
   for (const file of readdirSync(OUT_DIR)) {
     if (!file.endsWith(".meta.json") || Date.now() > deadline) continue;
     const meta = JSON.parse(readFileSync(join(OUT_DIR, file), "utf8"));
-    if ((meta.clinicRangeKm ?? CLINIC_RANGE_KM) >= CLINIC_RANGE_KM) continue;
     if (onlyCountryId && meta.countryId !== onlyCountryId) continue;
-    log(`${meta.countryName}: re-running ${meta.id} with the ${CLINIC_RANGE_KM} km clinic radius`);
+    const reason = outdatedReason(meta, onlyCountryId);
+    if (!reason) continue;
+    log(`${meta.countryName}: re-running ${meta.id} for ${reason}`);
     try {
       let { collection, stderr } = await runDetectorRetrying({ name: meta.countryName }, meta.bbox);
       if (/(clinics|roads) unavailable/.test(stderr)) {

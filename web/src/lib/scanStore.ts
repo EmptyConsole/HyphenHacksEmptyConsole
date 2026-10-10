@@ -75,6 +75,7 @@ async function writeAtomic(file: string, text: string) {
 /** Runs detect-villages.js on the box and saves the result the same way scan-batch.js does. */
 export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
   const collection = JSON.parse(await runDetector(request)) as {
+    tour?: { costUsd: number; stops: number } | null;
     features: { properties: { population?: number; predictedCostUsd?: number; healthcareUsd?: number; source?: string } }[];
   };
   let population = 0;
@@ -101,6 +102,10 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
     population,
     costUsd,
     osmMatched,
+    // Matches TOUR_VERSION in scan-batch.js.
+    tourVersion: collection.tour !== undefined ? 2 : undefined,
+    tourCostUsd: collection.tour?.costUsd ?? null,
+    tourStops: collection.tour?.stops ?? 0,
   };
   await mkdir(SCANS_DIR, { recursive: true });
   // Data first, then meta: a listed meta always points at a complete scan.
