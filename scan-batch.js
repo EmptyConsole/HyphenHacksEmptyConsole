@@ -8,6 +8,9 @@
 //   node scan-batch.js --rescan 566-mv2suz0a              # re-run saved scans by id, then stop
 //   node scan-batch.js --hours 3 --grid 566 --new-only    # only new grid cells, no re-runs
 //   node scan-batch.js --hours 3 --grid 566 --rescan-old  # only re-run outdated scans, then stop
+//   node scan-batch.js --sync                             # upload every local scan to Supabase
+//
+// Every saved scan is also upserted to Supabase when .env has its keys (see supabase-store.js).
 //
 // Box picking: a random point inside the country's border, then a random OSM
 // village or hamlet near that point. The box is centered on that village, so there
@@ -27,6 +30,7 @@ import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { feature } from "topojson-client";
+import { supabaseEnabled, upsertScan } from "./supabase-store.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(ROOT, "web", "data", "scans");
@@ -266,6 +270,43 @@ async function runDetectorRetrying(country, bbox) {
 }
 
 // Write to a temp name and rename, so a reader never sees half a file.
+// Local copy. Data file first, then meta: a meta file always points at a complete scan.
+function saveScan(meta, collection, metaPath = join(OUT_DIR, `${meta.id}.meta.json`)) {
+  writeAtomic(join(OUT_DIR, `${meta.id}.json`), collection);
+  writeAtomic(metaPath, meta);
+}
+
+// Shared copy in Supabase, so other computers' maps see it. A failure here never
+// loses the scan: the local files are already written, and --sync can upload later.
+async function shareScan(meta, collection) {
+  if (!supabaseEnabled) return;
+  try {
+    const result = await upsertScan(meta, collection);
+    log(`  supabase: ${result} ${meta.id}`);
+  } catch (error) {
+    log(`  supabase: upload of ${meta.id} failed (${error.message}); run --sync later`);
+  }
+}
+
+// Upload every local scan to Supabase. Safe to repeat: existing rows are replaced.
+async function syncAll() {
+  if (!supabaseEnabled) throw new Error("SUPABASE_URL and SUPABASE_SECRET_KEY are not set (see .env)");
+  const files = readdirSync(OUT_DIR).filter((file) => file.endsWith(".meta.json"));
+  let done = 0;
+  for (const file of files) {
+    const meta = JSON.parse(readFileSync(join(OUT_DIR, file), "utf8"));
+    const collection = JSON.parse(readFileSync(join(OUT_DIR, `${meta.id}.json`), "utf8"));
+    try {
+      const result = await upsertScan(meta, collection);
+      done += 1;
+      log(`${done}/${files.length} ${result} ${meta.id}`);
+    } catch (error) {
+      log(`${meta.id}: upload failed (${error.message})`);
+    }
+  }
+  log(`synced ${done} of ${files.length} scans`);
+}
+
 function writeAtomic(path, value) {
   writeFileSync(`${path}.tmp`, JSON.stringify(value));
   renameSync(`${path}.tmp`, path);
@@ -372,10 +413,9 @@ async function scanBox(country, bbox, extra) {
       ...extra,
       ...summarize(collection),
     };
-    // Data file first, then meta: a meta file always points at a complete scan.
-    writeAtomic(join(OUT_DIR, `${id}.json`), collection);
-    writeAtomic(join(OUT_DIR, `${id}.meta.json`), meta);
+    saveScan(meta, collection);
     log(`${country.name}: saved ${id} (${meta.villages} villages, ${meta.population} people)`);
+    await shareScan(meta, collection);
     return true;
   } catch (error) {
     log(`${country.name}: scan failed: ${error.message}`);
@@ -497,9 +537,9 @@ async function rerun(meta, metaPath, reason) {
       updatedAt: new Date().toISOString(),
       ...summarize(collection),
     };
-    writeAtomic(join(OUT_DIR, `${meta.id}.json`), collection);
-    writeAtomic(metaPath, updated);
+    saveScan(updated, collection, metaPath);
     log(`${meta.countryName}: updated ${meta.id} (${updated.villages} villages, ${updated.population} people)`);
+    await shareScan(updated, collection);
     return true;
   } catch (error) {
     log(`${meta.countryName}: re-run of ${meta.id} failed: ${error.message}`);
@@ -527,6 +567,11 @@ async function rescanOutdated(deadline, onlyCountryId, shard = { index: 1, count
 }
 
 async function main() {
+  if (process.argv.includes("--sync")) {
+    mkdirSync(OUT_DIR, { recursive: true });
+    await syncAll();
+    return;
+  }
   const { hours, grid, shard, rescan, newOnly, rescanOld } = readArgs(process.argv);
   const deadline = Date.now() + hours * 3600 * 1000;
   mkdirSync(OUT_DIR, { recursive: true });

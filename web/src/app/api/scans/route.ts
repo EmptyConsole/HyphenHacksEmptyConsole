@@ -10,10 +10,24 @@ export async function GET() {
   return Response.json({ scans: await listScans() });
 }
 
+// A scan takes from ~10 s to a few minutes. Vercel stops a function at this limit
+// (300 s is the most the Hobby plan allows with Fluid compute).
+export const maxDuration = 300;
+
 // One live scan at a time: each run downloads hundreds of tiles and queries Overpass.
 let running = false;
 
-/** Runs detect-villages.js on the posted box. Takes from ~10 s to a few minutes. */
+/** Plain-language reason for a failed scan, instead of the raw error. */
+function scanError(message: string) {
+  if (/Overpass/i.test(message)) {
+    return "OpenStreetMap's server (Overpass) is busy right now. Try again in a minute.";
+  }
+  if (/tile|JPEG|arcgisonline/i.test(message)) return "Satellite images couldn't be downloaded. Try again.";
+  if (/took too long/.test(message)) return "The scan took too long. Try a smaller area.";
+  return `Scan failed: ${message}`;
+}
+
+/** Runs the detector on the posted box. Takes from ~10 s to a few minutes. */
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as Partial<ScanRequest> | null;
   const { south, west, north, east, countryId, countryName } = body ?? {};
@@ -41,7 +55,8 @@ export async function POST(request: Request) {
     const scan = await runAndSaveScan({ ...box, countryId, countryName });
     return Response.json({ scan });
   } catch (error) {
-    return Response.json({ error: (error as Error).message }, { status: 502 });
+    console.error("scan failed:", error);
+    return Response.json({ error: scanError((error as Error).message) }, { status: 502 });
   } finally {
     running = false;
   }
