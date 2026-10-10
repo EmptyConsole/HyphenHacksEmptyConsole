@@ -1297,6 +1297,9 @@ async function recommendAccess(features, bbox) {
     features[i].properties.reachLabel = score.reachLabel;
     features[i].properties.reachUsd = score.reachUsd;
     features[i].properties.predictedCostUsd = score.predictedCostUsd;
+    // Each polygon keeps its own trip so a map can draw every route, not just the winner.
+    features[i].properties.route = { type: "LineString", coordinates: score.route };
+    features[i].properties.clinic = score.clinic;
     if (isLowerCost(score, scores[bestIndex])) bestIndex = i;
   }
 
