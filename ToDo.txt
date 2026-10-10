@@ -21,3 +21,8 @@ Why it solves:
 Currently health officers don't know where these villages are and how to get to them. We make it so there is a clear path to all the villages that satellites pick up.
 Once the officers know where the people are, budgets can finally be reworked to allow for real change.
 
+Details of algorithm:
+1. Uses OSM and satellites to locate villages that aren't on official maps
+2. Finds points of closest medical center to village
+3. Map easiest route of access with cost
+4. Calculate cost of country and routes needed
