@@ -18,9 +18,9 @@ export const metadata: Metadata = {
   description: "Finding unmapped villages and routing vaccination teams to them.",
   icons: {
     icon: [
-      { url: "/favicon.ico?v=2", sizes: "32x32" },
-      { url: "/favicon-32.png?v=2", type: "image/png", sizes: "32x32" },
-      { url: "/favicon.svg?v=2", type: "image/svg+xml" },
+      { url: "/favicon.ico?v=3", sizes: "32x32" },
+      { url: "/favicon-32.png?v=3", type: "image/png", sizes: "32x32" },
+      { url: "/favicon.svg?v=3", type: "image/svg+xml" },
     ],
   },
 };

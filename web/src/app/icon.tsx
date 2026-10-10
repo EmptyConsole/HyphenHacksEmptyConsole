@@ -3,7 +3,7 @@ import { ImageResponse } from "next/og";
 export const size = { width: 32, height: 32 };
 export const contentType = "image/png";
 
-/** Tab favicon: star + red / blue / yellow dots (vector → PNG). */
+/** Tab favicon: inset outline star + red / blue / yellow dots. */
 export default function Icon() {
   return new ImageResponse(
     (
@@ -15,30 +15,29 @@ export default function Icon() {
           alignItems: "center",
           justifyContent: "center",
           background: "#1B2450",
-          borderRadius: 8,
+          borderRadius: 10,
         }}
       >
         <svg width="32" height="32" viewBox="0 0 32 32">
-          {/* Bold filled star */}
           <path
-            d="M16 3.2 L19.15 12.1 L28.6 12.4 L21.15 18.15 L23.75 27.2 L16 21.9 L8.25 27.2 L10.85 18.15 L3.4 12.4 L12.85 12.1 Z"
-            fill="#FFF4D6"
-          />
-          {/* Constellation links */}
-          <path
-            d="M16 7.5 L10.2 23.2 L21.8 23.2 Z"
+            d="M16 7 L18.17 13.01 L24.56 13.22 L19.52 17.14 L21.29 23.28 L16 19.7 L10.71 23.28 L12.48 17.14 L7.44 13.22 L13.83 13.01 Z"
             fill="none"
-            stroke="#1B2450"
-            strokeWidth="1.4"
+            stroke="#FFF4D6"
+            strokeWidth="1.6"
             strokeLinejoin="round"
-            opacity="0.35"
+            strokeLinecap="round"
           />
-          {/* Yellow */}
-          <circle cx="16" cy="6.4" r="4.1" fill="#FFB547" />
-          {/* Red */}
-          <circle cx="9.5" cy="24.6" r="4.1" fill="#FF4D5E" />
-          {/* Blue */}
-          <circle cx="22.5" cy="24.6" r="4.1" fill="#6B7CFF" />
+          <path
+            d="M16 9.2 L11.6 21.6 L20.4 21.6 Z"
+            fill="none"
+            stroke="#FFF4D6"
+            strokeOpacity="0.28"
+            strokeWidth="1.1"
+            strokeLinejoin="round"
+          />
+          <circle cx="16" cy="7.2" r="3.1" fill="#FFB547" />
+          <circle cx="10.9" cy="22.9" r="3.1" fill="#FF4D5E" />
+          <circle cx="21.1" cy="22.9" r="3.1" fill="#6B7CFF" />
         </svg>
       </div>
     ),
