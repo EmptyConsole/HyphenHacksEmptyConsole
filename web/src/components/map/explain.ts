@@ -3,7 +3,8 @@ import type { AreaCollection, AreaProperties, ScanMeta, TourSummary } from "@/da
 import { formatCost, formatPopulation } from "@/lib/format";
 
 /**
- * Plain-language breakdowns for every number in the map panel.
+ * Plain-language breakdowns for every number in the map panel: one short sentence,
+ * the key math, then a smaller note with more detail.
  * The constants mirror detect-villages.js; keep them in sync when tuning it.
  */
 const DETECTOR = {
@@ -13,8 +14,6 @@ const DETECTOR = {
   usdPerStop: 100,
   offroadUsdPerKm: 8,
   osmMeters: 150,
-  clinicsPerVillage: 3,
-  clinicRangeKm: 40,
 };
 
 export interface ExplanationRow {
@@ -23,13 +22,16 @@ export interface ExplanationRow {
 }
 
 export interface Explanation {
+  /** One plain sentence. */
   summary: string;
+  /** The key math, last row being the result. */
   rows?: ExplanationRow[];
+  /** Smaller text with more detail. */
   note?: string;
 }
 
 export type StatKey = "population" | "cost" | "count" | "detected";
-export type VillageKey = "location" | "population" | "cost" | "certainty" | "reach" | "clinic" | "tour";
+export type VillageKey = "location" | "population" | "cost" | "certainty" | "reach" | "tour";
 
 export interface PanelContext {
   level: number;
@@ -42,281 +44,28 @@ const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 const num = (n: number) => Math.round(n).toLocaleString("en-US");
 const km = (m: number) => `${(m / 1000).toFixed(1)} km`;
 const pct = (n: number) => `${Math.round(n * 100)}%`;
-const pts = (n: number) => `${Math.round(n)} pts`;
+const pts = (n: number, max: number) => `${Math.round(n)} / ${max}`;
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 function total(features: AreaProperties[], key: keyof AreaProperties) {
   return features.reduce((s, f) => s + (Number(f[key]) || 0), 0);
 }
 
-function costPerPersonText(p: AreaProperties) {
-  switch (p.cost_per_person_source) {
-    case "own_scans":
-      return `Average detected cost per person across this country's ${p.cost_scan_count} scan${p.cost_scan_count === 1 ? "" : "s"} (vaccination plus travel).`;
-    case "all_scans":
-      return `No scans here yet, so this uses the average over all ${p.cost_scan_count} scans worldwide.`;
-    default:
-      return `No scans yet, so this uses the $${baselineConfig.defaultCostPerPerson} default: $${DETECTOR.usdPerPerson} of vaccine per person plus a share of the stop and travel.`;
-  }
+// ---- Labels shared with the panel ------------------------------------------
+
+/** "High", "Medium" or "Low", from the 0–100 certainty. */
+export function confidenceLevel(v: AreaProperties) {
+  const c = v.certainty ?? 0;
+  return v.detection === "osm" || c >= 75 ? "High" : c >= 50 ? "Medium" : "Low";
 }
 
-// ---- Panel stats ----------------------------------------------------------
-
-function worldStat(key: StatKey, ctx: PanelContext): Explanation {
-  const countries = (ctx.collection?.features ?? []).map((f) => f.properties);
-  const fallback = countries.filter((c) => c.baseline_source === "area_estimate").length;
-  const detected = countries.filter((c) => c.data_source === "detected").length;
-  const share = baselineConfig.noCoverageShare;
-  if (key === "population") {
-    return {
-      summary: "Rural people without health coverage, added up over every country.",
-      rows: [
-        { label: "Rural population (World Bank)", value: formatPopulation(total(countries, "baseline_rural")) },
-        { label: "× share without coverage (ILO)", value: pct(share) },
-        { label: "= Estimated population", value: formatPopulation(total(countries, "estimated_population")) },
-      ],
-      note: fallback
-        ? `${fallback} places have no World Bank figure (e.g. Taiwan, Kosovo); they use ${baselineConfig.fallbackRuralPerKm2} rural people per km² of land.`
-        : undefined,
-    };
-  }
-  if (key === "cost") {
-    const own = countries.filter((c) => c.cost_per_person_source === "own_scans").length;
-    const other = countries.find((c) => c.cost_per_person_source !== "own_scans");
-    return {
-      summary: "Each country's estimated population × a cost per person, added up.",
-      rows: [
-        { label: "Countries priced from their own scans", value: num(own) },
-        {
-          label: "Cost per person everywhere else",
-          value: other ? usd(other.cost_per_person ?? baselineConfig.defaultCostPerPerson) : "–",
-        },
-        { label: "= Estimated cost", value: formatCost(total(countries, "estimated_cost")) },
-      ],
-      note: other ? costPerPersonText(other) : undefined,
-    };
-  }
-  if (key === "count") {
-    return {
-      summary: `Every country on the map (Natural Earth borders, Antarctica left out). ${detected} have real satellite scans; the other ${countries.length - detected} use the modeled baseline only.`,
-    };
-  }
-  return {
-    summary:
-      "Real runs of the village detector. Each scan covers about 4 × 4 km around a random OSM village in a high zero-dose country, finds settlement outlines in Esri satellite imagery, and checks them against OpenStreetMap.",
-    rows: [
-      { label: "Scan areas", value: num(ctx.scans.length) },
-      { label: "Settlements found", value: num(ctx.scans.reduce((s, x) => s + x.villages, 0)) },
-      { label: "Confirmed by an OSM place", value: num(ctx.scans.reduce((s, x) => s + x.osmMatched, 0)) },
-    ],
-  };
+/** e.g. "High · on OSM" or "Low · satellite". Short enough for one panel row. */
+export function confidenceLabel(v: AreaProperties) {
+  return `${confidenceLevel(v)} · ${v.detection === "osm" ? "on OSM" : "satellite"}`;
 }
 
-function countryStat(key: StatKey, ctx: PanelContext, p: AreaProperties): Explanation {
-  const children = (ctx.collection?.features ?? []).map((f) => f.properties);
-  const detected = p.data_source === "detected";
-  if (key === "population") {
-    const worldBank = p.baseline_source === "world_bank";
-    return {
-      summary: `Rural people in ${p.name} likely to lack health coverage.`,
-      rows: [
-        {
-          label: worldBank ? `Rural population (World Bank ${p.baseline_year})` : "Rural population (area estimate)",
-          value: formatPopulation(p.baseline_rural ?? 0),
-        },
-        { label: "× share without coverage (ILO)", value: pct(baselineConfig.noCoverageShare) },
-        { label: "= Estimated population", value: formatPopulation(p.estimated_population) },
-      ],
-      note: worldBank
-        ? "The 56% is the ILO's global rural figure, applied the same way to every country."
-        : `The World Bank has no figure here, so this uses ${baselineConfig.fallbackRuralPerKm2} rural people per km² of land.`,
-    };
-  }
-  if (key === "cost") {
-    return {
-      summary: "Estimated population × cost to vaccinate and reach one person.",
-      rows: [
-        { label: "Estimated population", value: num(p.estimated_population) },
-        { label: "× cost per person", value: `$${(p.cost_per_person ?? 0).toFixed(2)}` },
-        { label: "= Estimated cost", value: formatCost(p.estimated_cost) },
-      ],
-      note: costPerPersonText(p),
-    };
-  }
-  if (key === "count") {
-    return {
-      summary: detected
-        ? `${children.length} satellite scan box${children.length === 1 ? "" : "es"} in ${p.name}. Each one is a separate run of the detector.`
-        : `Placeholder regions generated to split ${p.name}'s estimate. They are not real administrative areas, and no scan has run here yet.`,
-    };
-  }
-  return {
-    summary:
-      "What the scans in this country actually found. It's far below the country total because each scan covers only about 16 km²; the country total comes from the World Bank baseline.",
-    rows: [
-      { label: "Detected people", value: formatPopulation(total(children, "estimated_population")) },
-      { label: "Detected cost", value: formatCost(total(children, "estimated_cost")) },
-    ],
-  };
-}
-
-function regionStat(key: StatKey, ctx: PanelContext, p: AreaProperties): Explanation {
-  const villages = (ctx.collection?.features ?? []).map((f) => f.properties);
-  if (p.data_source !== "detected") {
-    const what = key === "count" ? "villages" : key === "cost" ? "cost" : "population";
-    return {
-      summary: `Placeholder ${what}: ${p.name} is a generated share of its country's modeled estimate, not a scan.`,
-      note: "Scan this area with “Scan this view” (zoom in first) to replace it with real detections.",
-    };
-  }
-  const osm = villages.filter((v) => v.detection === "osm").length;
-  if (key === "population" || key === "detected") {
-    return {
-      summary: `People in the ${villages.length} settlements detected in this box, added up. Click a settlement to see how its number was estimated.`,
-      rows: [
-        { label: "Settlements", value: num(villages.length) },
-        { label: "Roof clusters counted", value: num(total(villages, "buildings")) || "not saved" },
-        { label: "= Estimated population", value: num(total(villages, "estimated_population")) },
-      ],
-    };
-  }
-  if (key === "cost") {
-    return {
-      summary: "Vaccination plus travel for every detected settlement, added up.",
-      rows: [
-        { label: "Vaccination", value: usd(total(villages, "healthcare_cost")) },
-        { label: "+ Travel from clinics", value: usd(total(villages, "reach_cost")) },
-        { label: "= Estimated cost", value: usd(total(villages, "estimated_cost")) },
-      ],
-    };
-  }
-  return {
-    summary: "Settlement outlines the detector traced in this box.",
-    rows: [
-      { label: "Confirmed by an OSM place", value: num(osm) },
-      { label: "Satellite only", value: num(villages.length - osm) },
-    ],
-  };
-}
-
-export function explainStat(key: StatKey, ctx: PanelContext): Explanation {
-  if (ctx.level === 0 || !ctx.parent) return worldStat(key, ctx);
-  if (ctx.level === 1) return countryStat(key, ctx, ctx.parent);
-  return regionStat(key, ctx, ctx.parent);
-}
-
-// ---- One settlement -------------------------------------------------------
-
-function villagePopulation(v: AreaProperties): Explanation {
-  const { peoplePerBuilding: per, metersPerDwelling: m2 } = DETECTOR;
-  const area = v.area_m2 ?? 0;
-  const fromArea = Math.round(area / m2) * per;
-  // Older scans did not save the roof count; when area loses, the roofs must have won.
-  const buildings = v.buildings ?? (v.estimated_population > fromArea ? v.estimated_population / per : undefined);
-  const fromRoofs = buildings !== undefined ? buildings * per : undefined;
-  const method =
-    v.estimated_population === per && (fromRoofs ?? 0) < per && fromArea < per
-      ? "minimum"
-      : fromRoofs !== undefined && fromRoofs >= fromArea
-        ? "roofs"
-        : "area";
-  return {
-    summary:
-      method === "roofs"
-        ? `Counted ${num(buildings!)} separate roofs in the satellite image and assumed ${per} people per dwelling.`
-        : method === "area"
-          ? `Some roofs touch and merge into one cluster, so the settlement's area gives a bigger count: one dwelling per ${m2} m², ${per} people each.`
-          : `Too small to count, so it gets the minimum of one dwelling (${per} people).`,
-    rows: [
-      { label: `Roof clusters × ${per}`, value: fromRoofs !== undefined ? `${num(buildings!)} × ${per} = ${num(fromRoofs)}` : "not saved" },
-      { label: `Area ÷ ${m2} m² × ${per}`, value: `${num(area)} m² → ${num(fromArea)}` },
-      { label: "= Larger of the two", value: num(v.estimated_population) },
-    ],
-  };
-}
-
-function villageCost(v: AreaProperties): Explanation {
-  const healthcare = v.healthcare_cost ?? v.estimated_population * DETECTOR.usdPerPerson + DETECTOR.usdPerStop;
-  const reach = v.reach_cost ?? v.estimated_cost - healthcare;
-  return {
-    summary: "Vaccinating everyone here, plus getting a team here from the clinic.",
-    rows: [
-      {
-        label: `Vaccination (${num(v.estimated_population)} × $${DETECTOR.usdPerPerson} + $${DETECTOR.usdPerStop} stop)`,
-        value: usd(healthcare),
-      },
-      { label: "+ Travel", value: usd(reach) },
-      { label: "= Estimated cost", value: usd(v.estimated_cost) },
-    ],
-    note: v.clinic_name
-      ? `Travel follows OSM roads at $1.20–$4.50 per km depending on road type (×1.5 when unpaved), plus $${DETECTOR.offroadUsdPerKm}/km for any stretch with no road.`
-      : `No clinic was found in range, so travel is priced as the whole search distance off-road at $${DETECTOR.offroadUsdPerKm}/km.`,
-  };
-}
-
-function villageReach(v: AreaProperties): Explanation {
-  const scale = "0–33 is easy, 34–66 moderate, 67–100 hard.";
-  if (v.travel_m === undefined || v.offroad_m === undefined || v.slow_m === undefined) {
-    return {
-      summary: v.clinic_name
-        ? `${v.reach_label} (${v.reach_difficulty}/100). Up to 50 points for the off-road gap at the settlement (full at 1 km), up to 30 for trip length (full at 30 km), and up to 20 for the share on tracks, unpaved roads or no road.`
-        : `${v.reach_label} (${v.reach_difficulty}/100). No clinic was found in range, so the whole trip counts as off-road: the full 50 points for the gap, the full 20 for surface, and the rest for distance.`,
-      note: `This scan predates the per-part breakdown. ${scale}`,
-    };
-  }
-  const offroad = Math.min(v.offroad_m / 1000, 1) * 50;
-  const distance = Math.min(v.travel_m / 30000, 1) * 30;
-  const share = v.travel_m === 0 ? 1 : Math.min(v.slow_m / v.travel_m, 1);
-  return {
-    summary: `${v.reach_label} (${v.reach_difficulty}/100). Points add up from how far the settlement is from a road, how long the trip is, and how much of it is rough going.`,
-    rows: [
-      { label: `Off-road gap at the settlement: ${km(v.offroad_m)} (full at 1 km)`, value: `${pts(offroad)} / 50` },
-      { label: `Trip from clinic: ${km(v.travel_m)} (full at 30 km)`, value: `${pts(distance)} / 30` },
-      { label: `Tracks, unpaved or no road: ${pct(share)} of the trip`, value: `${pts(share * 20)} / 20` },
-    ],
-    note: v.clinic_name ? scale : `No clinic was found in range, so the whole trip counts as off-road. ${scale}`,
-  };
-}
-
-function villageCertainty(v: AreaProperties): Explanation {
-  if (v.detection === "osm") {
-    return {
-      summary: `An OpenStreetMap place (${v.name}) sits inside this outline or within ${DETECTOR.osmMeters} m of it, so the settlement is confirmed: certainty 100.`,
-    };
-  }
-  const parts =
-    v.buildings !== undefined && v.compactness !== undefined && v.roof_share !== undefined
-      ? {
-          buildings: Math.min(v.buildings / 8, 1) * 45,
-          shape: Math.min(v.compactness / 0.45, 1) * 30,
-          roofs: Math.min(v.roof_share / 0.35, 1) * 25,
-        }
-      : null;
-  return {
-    summary: `No OSM place is nearby, so the score comes from the satellite image alone and is capped at 99. Certainty ${v.certainty}.`,
-    rows: parts
-      ? [
-          { label: `Roof clusters: ${v.buildings} (full at 8)`, value: `${pts(parts.buildings)} / 45` },
-          { label: `Compactness: ${v.compactness!.toFixed(2)} (full at 0.45, a circle is 1)`, value: `${pts(parts.shape)} / 30` },
-          { label: `Roof-colored share: ${pct(v.roof_share!)} (full at 35%)`, value: `${pts(parts.roofs)} / 25` },
-        ]
-      : [
-          { label: "Roof clusters (full at 8)", value: "up to 45" },
-          { label: "Compact, village-like shape", value: "up to 30" },
-          { label: "Share of roof-colored pixels", value: "up to 25" },
-        ],
-    note: parts ? undefined : "This scan predates the per-factor breakdown.",
-  };
-}
-
-function villageClinic(v: AreaProperties): Explanation {
-  return v.clinic_name
-    ? {
-        summary: `${v.clinic_name} is the cheapest of the ${DETECTOR.clinicsPerVillage} nearest OpenStreetMap health facilities (hospital, clinic, doctor or health post), comparing road routes and straight off-road trips.`,
-      }
-    : {
-        summary: `OpenStreetMap lists no health facility within range of this scan, so no route is drawn.`,
-        note: `Scan radius is ~${DETECTOR.clinicRangeKm} km to find health facilities.`,
-      };
+export function accessLabel(v: AreaProperties) {
+  return v.reach_label ? capitalize(v.reach_label) : "–";
 }
 
 /** Plain-text coordinates, e.g. "9.45231° N, 9.02114° E". */
@@ -326,10 +75,262 @@ export function formatLatLon(lat: number, lon: number) {
   return `${Math.abs(lat).toFixed(5)}° ${ns}, ${Math.abs(lon).toFixed(5)}° ${ew}`;
 }
 
+// ---- Panel stats ----------------------------------------------------------
+
+function costSourceNote(p: AreaProperties) {
+  switch (p.cost_per_person_source) {
+    case "own_scans":
+      return `The cost per person is the average from this country's ${p.cost_scan_count} scan${p.cost_scan_count === 1 ? "" : "s"}: vaccine, the visit and travel.`;
+    case "all_scans":
+      return "This country has no scans yet, so it uses the average cost per person from all scans.";
+    default:
+      return `No scans yet, so it uses a $${baselineConfig.defaultCostPerPerson} default: $${DETECTOR.usdPerPerson} of vaccine per person plus the visit and travel.`;
+  }
+}
+
+function worldStat(key: StatKey, ctx: PanelContext): Explanation {
+  const countries = (ctx.collection?.features ?? []).map((f) => f.properties);
+  const people = total(countries, "estimated_population");
+  const cost = total(countries, "estimated_cost");
+  const detected = countries.filter((c) => c.data_source === "detected").length;
+  if (key === "population") {
+    return {
+      summary: `About ${formatPopulation(people)} rural people likely have no health coverage.`,
+      rows: [
+        { label: "Rural population", value: formatPopulation(total(countries, "baseline_rural")) },
+        { label: "× without coverage", value: pct(baselineConfig.noCoverageShare) },
+        { label: "= People", value: formatPopulation(people) },
+      ],
+      note: "Rural population is the World Bank's latest count for each country. The 56% is the International Labour Organization's global rural rate. Places with no World Bank figure are estimated from their land area.",
+    };
+  }
+  if (key === "cost") {
+    return {
+      summary: "What it would cost to reach and vaccinate all of them.",
+      rows: [
+        { label: "People", value: formatPopulation(people) },
+        { label: "× average cost per person", value: people ? `$${(cost / people).toFixed(2)}` : "–" },
+        { label: "= Cost", value: formatCost(cost) },
+      ],
+      note: "A country with scans uses the cost per person its scans found. Every other country uses the average across all scans.",
+    };
+  }
+  if (key === "count") {
+    return {
+      summary: `Every country on the map. ${detected} have satellite scans; the rest are estimates only.`,
+    };
+  }
+  return {
+    summary: "Places we've actually scanned with satellite imagery.",
+    rows: [
+      { label: "Countries", value: num(new Set(ctx.scans.map((s) => s.countryId)).size) },
+      { label: "Scan areas", value: num(ctx.scans.length) },
+      { label: "Settlements found", value: num(ctx.scans.reduce((s, x) => s + x.villages, 0)) },
+    ],
+    note: "Each scan covers about 4 × 4 km. Settlements are found in satellite images and checked against OpenStreetMap.",
+  };
+}
+
+function countryStat(key: StatKey, ctx: PanelContext, p: AreaProperties): Explanation {
+  const children = (ctx.collection?.features ?? []).map((f) => f.properties);
+  if (key === "population") {
+    const worldBank = p.baseline_source === "world_bank";
+    return {
+      summary: `About ${formatPopulation(p.estimated_population)} rural people in ${p.name} likely have no health coverage.`,
+      rows: [
+        { label: "Rural population", value: formatPopulation(p.baseline_rural ?? 0) },
+        { label: "× without coverage", value: pct(baselineConfig.noCoverageShare) },
+        { label: "= People", value: formatPopulation(p.estimated_population) },
+      ],
+      note: worldBank
+        ? `Rural population is the World Bank's ${p.baseline_year} figure. The 56% is the International Labour Organization's global rural rate.`
+        : "The World Bank has no figure here, so rural population is estimated from land area.",
+    };
+  }
+  if (key === "cost") {
+    return {
+      summary: "What it would cost to reach and vaccinate them.",
+      rows: [
+        { label: "People", value: formatPopulation(p.estimated_population) },
+        { label: "× cost per person", value: `$${(p.cost_per_person ?? 0).toFixed(2)}` },
+        { label: "= Cost", value: formatCost(p.estimated_cost) },
+      ],
+      note: costSourceNote(p),
+    };
+  }
+  if (key === "count") {
+    return {
+      summary:
+        p.data_source === "detected"
+          ? `${children.length} satellite scan${children.length === 1 ? "" : "s"} in ${p.name}. Each dot on the map is one.`
+          : `Placeholder regions that split ${p.name}'s estimate. No scans here yet.`,
+    };
+  }
+  return {
+    summary: `What the satellite scans in ${p.name} actually found.`,
+    rows: [
+      { label: "Scan areas", value: num(children.length) },
+      { label: "People", value: formatPopulation(total(children, "estimated_population")) },
+      { label: "Cost", value: formatCost(total(children, "estimated_cost")) },
+    ],
+    note: "Far smaller than the country total because each scan covers only about 16 km². The total above is an estimate for the whole country.",
+  };
+}
+
+function regionStat(key: StatKey, ctx: PanelContext, p: AreaProperties): Explanation {
+  const villages = (ctx.collection?.features ?? []).map((f) => f.properties);
+  if (p.data_source !== "detected") {
+    return {
+      summary: `A placeholder: ${p.name} is a share of the country's estimate, not a scan.`,
+      note: "Zoom in and use “Scan this view” to replace it with real detections.",
+    };
+  }
+  const osm = villages.filter((v) => v.detection === "osm").length;
+  if (key === "population") {
+    return {
+      summary: "People living in the settlements found in this scan.",
+      rows: [
+        { label: "Settlements", value: num(villages.length) },
+        { label: "= People", value: num(total(villages, "estimated_population")) },
+      ],
+      note: "Each settlement's count comes from its roofs or its size. Click a settlement to see how.",
+    };
+  }
+  if (key === "cost") {
+    return {
+      summary: "Vaccinating everyone here, plus travel from the nearest clinic.",
+      rows: [
+        { label: "Vaccination", value: usd(total(villages, "healthcare_cost")) },
+        { label: "+ Travel", value: usd(total(villages, "reach_cost")) },
+        { label: "= Cost", value: usd(total(villages, "estimated_cost")) },
+      ],
+      note: `Vaccination is $${DETECTOR.usdPerPerson} per person plus $${DETECTOR.usdPerStop} per settlement visited.`,
+    };
+  }
+  return {
+    summary: `Settlements found in this scan. ${osm} are on OpenStreetMap; the other ${villages.length - osm} were found only in satellite images.`,
+  };
+}
+
+export function explainStat(key: StatKey, ctx: PanelContext): Explanation {
+  if (ctx.level === 0 || !ctx.parent) return worldStat(key, ctx);
+  if (ctx.level === 1) return countryStat(key, ctx, ctx.parent);
+  return regionStat(key, ctx, ctx.parent);
+}
+
+// ---- Team tour ------------------------------------------------------------
+
+export function explainTour(t: TourSummary): Explanation {
+  const start = t.depotKind === "clinic" ? (t.depotName ?? "the nearest clinic") : "the settlement nearest a road";
+  return {
+    summary: `One team leaves ${start}, visits ${t.stops} settlements and comes back, for ${usd(t.costUsd)} in travel.`,
+    rows: [
+      { label: `Roads, ${km(t.roadMeters)}`, value: usd(t.roadUsd) },
+      { label: `Off-road, ${km(t.offroadMeters)}`, value: usd(t.offroadUsd) },
+      { label: "= Travel", value: usd(t.costUsd) },
+      { label: "+ Vaccination", value: usd(t.vaccinationUsd) },
+      { label: "= Total", value: usd(t.costUsd + t.vaccinationUsd) },
+    ],
+    note:
+      "Stops are put in the order that keeps travel cheapest, using roads wherever that's cheaper than going straight across country." +
+      (t.depotKind === "clinic" ? "" : " No clinic was found nearby, so the tour starts at the settlement closest to a road.") +
+      (t.skipped ? ` ${t.skipped} low-confidence detections are left out.` : ""),
+  };
+}
+
+// ---- One settlement -------------------------------------------------------
+
+function villagePopulation(v: AreaProperties): Explanation {
+  const { peoplePerBuilding: per, metersPerDwelling: m2 } = DETECTOR;
+  const area = v.area_m2 ?? 0;
+  const fromArea = Math.round(area / m2) * per;
+  // Older scans did not save the roof count; when area loses, the roofs must have won.
+  const roofs = v.buildings ?? (v.estimated_population > fromArea ? v.estimated_population / per : undefined);
+  const fromRoofs = roofs !== undefined ? roofs * per : undefined;
+  const byRoofs = fromRoofs !== undefined && fromRoofs >= fromArea;
+  return {
+    summary: byRoofs
+      ? `About ${num(v.estimated_population)} people: ${num(roofs!)} roofs × ${per} people per home.`
+      : `About ${num(v.estimated_population)} people, estimated from the settlement's size.`,
+    rows: [
+      {
+        label: "From roofs",
+        value: fromRoofs !== undefined ? `${num(roofs!)} × ${per} = ${num(fromRoofs)}` : "not recorded",
+      },
+      { label: "From size", value: `${num(area)} m² → ${num(fromArea)}` },
+      { label: "= People (the larger)", value: num(v.estimated_population) },
+    ],
+    note: `Each home is assumed to hold ${per} people. Roofs that touch can look like one, so the size estimate (one home per ${m2} m²) is used when it's higher.`,
+  };
+}
+
+function villageCost(v: AreaProperties): Explanation {
+  const vaccination = v.healthcare_cost ?? v.estimated_population * DETECTOR.usdPerPerson + DETECTOR.usdPerStop;
+  const travel = v.reach_cost ?? v.estimated_cost - vaccination;
+  return {
+    summary: "Vaccinating everyone here, plus getting a team here.",
+    rows: [
+      { label: "Vaccination", value: usd(vaccination) },
+      { label: "+ Travel", value: usd(travel) },
+      { label: "= Cost", value: usd(v.estimated_cost) },
+    ],
+    note:
+      `Vaccination is $${DETECTOR.usdPerPerson} per person plus $${DETECTOR.usdPerStop} for the visit. ` +
+      (v.clinic_name
+        ? `Travel follows roads where possible ($1.20–$4.50 per km) and costs $${DETECTOR.offroadUsdPerKm} per km off-road.`
+        : "No clinic was found nearby, so travel is priced as a long off-road trip."),
+  };
+}
+
+function villageAccess(v: AreaProperties): Explanation {
+  const label = accessLabel(v);
+  const scale = "Distance from a road counts most, then trip length, then how much of the way is rough. 0–33 is easy, 34–66 moderate, 67–100 hard.";
+  if (!v.clinic_name) {
+    return {
+      summary: `${label} (${v.reach_difficulty}/100): no clinic was found nearby, so the whole trip counts as off-road.`,
+      note: scale,
+    };
+  }
+  const summary = `${label} to reach from ${v.clinic_name} (${v.reach_difficulty}/100).`;
+  if (v.travel_m === undefined || v.offroad_m === undefined || v.slow_m === undefined) {
+    return { summary, note: scale };
+  }
+  const share = v.travel_m === 0 ? 1 : Math.min(v.slow_m / v.travel_m, 1);
+  return {
+    summary,
+    rows: [
+      { label: `Distance from a road, ${km(v.offroad_m)}`, value: pts(Math.min(v.offroad_m / 1000, 1) * 50, 50) },
+      { label: `Trip from the clinic, ${km(v.travel_m)}`, value: pts(Math.min(v.travel_m / 30000, 1) * 30, 30) },
+      { label: `Rough or no road, ${pct(share)}`, value: pts(share * 20, 20) },
+    ],
+    note: scale,
+  };
+}
+
+function villageConfidence(v: AreaProperties): Explanation {
+  if (v.detection === "osm") {
+    return {
+      summary: "High: this settlement is listed on OpenStreetMap.",
+      note: `A mapped place inside the outline, or within ${DETECTOR.osmMeters} m of it, confirms it.`,
+    };
+  }
+  const has = v.buildings !== undefined && v.compactness !== undefined && v.roof_share !== undefined;
+  return {
+    summary: `${confidenceLevel(v)}: found only in satellite images (score ${v.certainty}/100).`,
+    rows: has
+      ? [
+          { label: `Roofs counted, ${v.buildings}`, value: pts(Math.min(v.buildings! / 8, 1) * 45, 45) },
+          { label: "Village-like shape", value: pts(Math.min(v.compactness! / 0.45, 1) * 30, 30) },
+          { label: `Roof-colored area, ${pct(v.roof_share!)}`, value: pts(Math.min(v.roof_share! / 0.35, 1) * 25, 25) },
+        ]
+      : undefined,
+    note: "More roofs, a compact shape and more roof-colored ground all raise the score. It stays below 100 unless OpenStreetMap confirms the place. High is 75+, Medium 50–74, Low under 50.",
+  };
+}
+
 function villageLocation(v: AreaProperties): Explanation {
   return {
-    summary:
-      "The center of the settlement's outline: the average of its corners. Routes and the team tour arrive at this point.",
+    summary: "The center of the settlement.",
     rows:
       v.lat !== undefined && v.lon !== undefined
         ? [
@@ -337,50 +338,27 @@ function villageLocation(v: AreaProperties): Explanation {
             { label: "Longitude", value: v.lon.toFixed(5) },
           ]
         : undefined,
-    note: "Five decimals is about 1 m. Paste the pair into any map app to find the spot.",
+    note: "Paste the pair into any map app to find it. Routes and the team tour arrive at this point.",
   };
 }
 
 function villageTourStop(v: AreaProperties, tour: TourSummary | null): Explanation {
-  if (!tour) return { summary: "This scan has no team tour yet. It gets one when the batch re-runs it." };
+  if (!tour) return { summary: "This scan doesn't have a team tour yet." };
   if (v.tour_stop === undefined) {
     return {
-      summary: `Skipped by the team tour: its certainty (${v.certainty}) is below ${tour.minCertainty}, so it is more likely bare ground than homes.`,
+      summary: `Not on the team tour: confidence is low (${v.certainty}/100), so it may be bare ground rather than homes.`,
     };
   }
   return {
-    summary: `Stop ${v.tour_stop} of ${tour.stops} on the team's round trip from ${tour.depotName ?? "the start"}. The order is the one that keeps total travel cost lowest.`,
-  };
-}
-
-export function explainTour(t: TourSummary): Explanation {
-  const start =
-    t.depotKind === "clinic"
-      ? (t.depotName ?? "the nearest clinic")
-      : "the settlement closest to a road (no clinic in range)";
-  return {
-    summary: `One team leaves ${start}, visits all ${t.stops} settlements with certainty ${t.minCertainty} or more, and comes back. The visiting order is chosen to keep travel cost as low as possible.`,
-    rows: [
-      { label: `On roads: ${km(t.roadMeters)}`, value: usd(t.roadUsd) },
-      { label: `Off-road: ${km(t.offroadMeters)}`, value: usd(t.offroadUsd) },
-      { label: "= Tour travel cost", value: usd(t.costUsd) },
-      { label: "+ Vaccinating these settlements", value: usd(t.vaccinationUsd) },
-      { label: "= Campaign cost", value: usd(t.costUsd + t.vaccinationUsd) },
-    ],
-    note:
-      `Each leg uses whichever is cheaper: OSM roads ($1.20–$4.50/km, plus $${DETECTOR.offroadUsdPerKm}/km to reach the road) or a straight off-road line at $${DETECTOR.offroadUsdPerKm}/km. ` +
-      `Visiting the nearest stop each time costs ${usd(t.greedyUsd)}; swapping legs where that helps (2-opt) brings it to ${usd(t.costUsd)}. ` +
-      `A separate round trip to each settlement would cost about ${usd(t.separateTripsUsd)}. ` +
-      (t.skipped ? `${t.skipped} detections below certainty ${t.minCertainty} were skipped.` : ""),
+    summary: `Stop ${v.tour_stop} of ${tour.stops} on the team's round trip from ${tour.depotName ?? "the start"}.`,
+    note: "The order is the one that keeps total travel cost lowest.",
   };
 }
 
 export function explainVillage(key: VillageKey, v: AreaProperties, tour: TourSummary | null = null): Explanation {
   if (key === "location") return villageLocation(v);
   if (v.data_source !== "detected") {
-    return {
-      summary: `Placeholder value: ${v.name} is a generated share of its region's modeled estimate, not a detected settlement.`,
-    };
+    return { summary: `A placeholder: ${v.name} is a share of its region's estimate, not a detected settlement.` };
   }
   switch (key) {
     case "population":
@@ -388,11 +366,9 @@ export function explainVillage(key: VillageKey, v: AreaProperties, tour: TourSum
     case "cost":
       return villageCost(v);
     case "reach":
-      return villageReach(v);
+      return villageAccess(v);
     case "certainty":
-      return villageCertainty(v);
-    case "clinic":
-      return villageClinic(v);
+      return villageConfidence(v);
     case "tour":
       return villageTourStop(v, tour);
   }

@@ -168,6 +168,10 @@
   gap: var(--space-2);
 }
 
+.stats[data-columns="2"] {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 /* Every number is a button that opens its own explanation. */
 .stat {
   display: flex;
@@ -272,6 +276,80 @@
 .selected span {
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
+}
+
+/* ---------- Selected settlement ---------- */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.back {
+  align-self: flex-start;
+  margin-left: calc(-1 * var(--space-2));
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.back:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+}
+
+.coords {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  text-decoration: underline dotted rgba(255, 255, 255, 0.25);
+  text-underline-offset: 3px;
+}
+
+.coords:hover,
+.coords[aria-expanded="true"] {
+  color: var(--color-text);
+}
+
+.card .details {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* ---------- Map key ---------- */
+
+.legendBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.legendToggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+
+.legendToggle::after {
+  content: "▸";
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.legendToggle[aria-expanded="true"]::after {
+  transform: rotate(90deg);
+}
+
+.legendToggle:hover {
+  color: var(--color-text);
 }
 
 .legend {
@@ -519,28 +597,6 @@ dl.details > div {
 .keyTour {
   height: 0;
   border-top: 3px solid var(--color-accent);
-}
-
-.routeToggle {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border);
-  font-size: var(--text-micro);
-}
-
-.routeToggle button {
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-pill);
-  color: var(--color-text-secondary);
-  transition: background-color var(--duration-fast) var(--ease-out);
-}
-
-.routeToggle button[aria-pressed="true"] {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--color-text);
 }
 
 /* ---------- Live scan ---------- */

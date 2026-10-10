@@ -46,6 +46,9 @@ import {
 } from "./mapStyle";
 import styles from "./ExplorerMap.module.css";
 import {
+  accessLabel,
+  confidenceLabel,
+  confidenceLevel,
   explainStat,
   explainTour,
   explainVillage,
@@ -64,6 +67,8 @@ const WORLD_VIEW = { center: [18, 12] as [number, number], zoom: 1.9 };
 const EMPTY = featureCollection([]);
 const LEVEL_LABEL = ["World", "Country", "Region"] as const;
 const CHILD_LABEL = ["countries", "regions", "villages"] as const;
+/** Inside a scanned country the children are scans; inside a scan they are settlements. */
+const DETECTED_CHILD_LABEL = ["countries", "scans", "settlements"] as const;
 /** The scan button appears from this zoom; below it the view is far too big to scan. */
 const SCAN_MIN_ZOOM = 8;
 
@@ -292,8 +297,7 @@ export default function ExplorerMap() {
   const [scan, setScan] = useState<ScanState>({ status: "idle" });
   const [now, setNow] = useState(() => Date.now());
   const [mapTheme, setMapTheme] = useState<MapTheme>("dark");
-  /** Which routes the village view draws: the one-team tour, or each settlement's clinic route. */
-  const [routeMode, setRouteMode] = useState<"tour" | "clinic">("tour");
+  const [legendOpen, setLegendOpen] = useState(false);
 
   /** Which number's explanation is open, e.g. "stat:cost" or "village:reach". */
   const [explain, setExplain] = useState<string | null>(null);
@@ -314,6 +318,11 @@ export default function ExplorerMap() {
     map.setPaintProperty("areas-line", "line-color", areaLineColor(theme));
   }, []);
 
+  const selectedRef = useRef(selected);
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
+
   const level = trail.length;
   const trailRef = useRef(trail);
   useEffect(() => {
@@ -333,6 +342,11 @@ export default function ExplorerMap() {
           : [...t, feature],
       );
     } else setSelected(feature.properties);
+  }, []);
+
+  const closeSelected = useCallback(() => {
+    setSelected(null);
+    setExplain(null);
   }, []);
 
   const goTo = useCallback((depth: number) => {
@@ -690,7 +704,8 @@ export default function ExplorerMap() {
   }, [ready, trail, level, dataVersion]);
 
   // ---- Team tour or clinic routes, never both: together they are unreadable ----
-  const showTour = routeMode === "tour" && !!extras?.tour;
+  // A scan with a team tour shows only the tour; older scans fall back to clinic routes.
+  const showTour = !!extras?.tour;
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
@@ -732,12 +747,14 @@ export default function ExplorerMap() {
   // ---- Escape goes up a level ----
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && trailRef.current.length > 0)
-        goTo(trailRef.current.length - 1);
+      if (e.key !== "Escape") return;
+      // A selected settlement closes first; the next Esc goes up a level.
+      if (selectedRef.current) closeSelected();
+      else if (trailRef.current.length > 0) goTo(trailRef.current.length - 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goTo]);
+  }, [goTo, closeSelected]);
 
   // ---- Elapsed-time ticker while a live scan runs ----
   useEffect(() => {
@@ -812,24 +829,20 @@ export default function ExplorerMap() {
 
   const detectedHere =
     collection?.features[0]?.properties.data_source === "detected" && level > 0;
-  const detectedCountries = new Set(scans.map((s) => s.countryId)).size;
   const detectedVillages = scans.reduce((s, x) => s + x.villages, 0);
-  const osmConfirmed =
-    detectedHere && level === 2
-      ? collection!.features.filter((f) => f.properties.detection === "osm")
-          .length
-      : 0;
 
   const hint =
     level === 0
-      ? "Hover a country for estimates. Gold dots are real scans. Click any number to see how it was worked out."
+      ? "Click a country to zoom in. Click any number to see how it's worked out."
       : level === 1
         ? detectedHere
-          ? "Each box is a satellite scan. Click one to see what it found."
-          : "Click a region to see its villages."
+          ? "Click a dot to open a scan."
+          : "Click a region to zoom in."
         : detectedHere
-          ? "Click a settlement for its route and certainty. Click any number to see how it was worked out."
+          ? "Click a settlement for details."
           : "Click a village for details.";
+
+  const showTourCost = level === 2 && detectedHere && !!extras?.tour;
 
   const panelContext: PanelContext = {
     level,
@@ -866,162 +879,153 @@ export default function ExplorerMap() {
           ))}
         </nav>
 
-        <div>
-          <p className="eyebrow">{LEVEL_LABEL[level]}</p>
-          <h3 className={styles.title}>
-            {parentProps?.name ?? "All countries"}
-          </h3>
-          {parentProps && <SourceBadge props={parentProps} />}
-        </div>
-
-        <div className={styles.stats}>
-          {(
-            [
-              [
-                "population",
-                "Est. population",
-                formatPopulation(totals.population),
-              ],
-              ["cost", "Est. cost", formatCost(totals.cost)],
-              ["count", CHILD_LABEL[level], String(totals.count)],
-            ] as const
-          ).map(([key, label, value]) => (
-            <button
-              key={key}
-              className={styles.stat}
-              aria-expanded={explain === `stat:${key}`}
-              onClick={() => toggleExplain(`stat:${key}`)}
-            >
-              <span className={styles.statLabel}>{label}</span>
-              <span className={styles.statValue}>{value}</span>
-            </button>
-          ))}
-        </div>
-        {(explain === "stat:population" || explain === "stat:cost" || explain === "stat:count") && (
-          <ExplainBox
-            explanation={explainStat(explain.slice(5) as StatKey, panelContext)}
+        {selected ? (
+          <SettlementCard
+            props={selected}
+            tour={extras?.tour?.summary ?? null}
+            backLabel={parentProps?.name ?? "area"}
+            open={explain}
+            onToggle={toggleExplain}
+            onClose={closeSelected}
           />
-        )}
-
-        {(level === 0 || detectedHere) && (
-          <button
-            className={styles.detected}
-            aria-expanded={explain === "stat:detected"}
-            onClick={() => toggleExplain("stat:detected")}
-          >
-            {level === 0 ? (
-              <>
-                <strong>Real detections</strong>
-                {scans.length
-                  ? `${detectedCountries} countries · ${scans.length} scan areas · ${detectedVillages} settlements`
-                  : "No scans yet. Totals use the World Bank baseline."}
-              </>
-            ) : (
-              <>
-                <strong>Detected here</strong>
-                {formatPopulation(sum(collection, "estimated_population"))}{" "}
-                people · {formatCost(sum(collection, "estimated_cost"))}
-                {level === 2 &&
-                  ` · ${osmConfirmed} of ${totals.count} confirmed by OSM`}
-              </>
-            )}
-          </button>
-        )}
-        {explain === "stat:detected" && (
-          <ExplainBox explanation={explainStat("detected", panelContext)} />
-        )}
-
-        {level === 2 && detectedHere && extras?.tour && (
+        ) : (
           <>
-            <button
-              className={styles.detected}
-              aria-expanded={explain === "stat:tour"}
-              onClick={() => toggleExplain("stat:tour")}
-            >
-              <strong>Cheapest team tour</strong>
-              {formatCost(extras.tour.summary.costUsd)} ·{" "}
-              {((extras.tour.summary.roadMeters + extras.tour.summary.offroadMeters) / 1000).toFixed(1)} km ·{" "}
-              {extras.tour.summary.stops} stops
-            </button>
-            {explain === "stat:tour" && <ExplainBox explanation={explainTour(extras.tour.summary)} />}
-            <div className={styles.routeToggle} role="group" aria-label="Routes shown">
-              <button aria-pressed={routeMode === "tour"} onClick={() => setRouteMode("tour")}>
-                Team tour
-              </button>
-              <button aria-pressed={routeMode === "clinic"} onClick={() => setRouteMode("clinic")}>
-                Clinic routes
-              </button>
+            <div>
+              <p className="eyebrow">{LEVEL_LABEL[level]}</p>
+              <h3 className={styles.title}>
+                {parentProps?.name ?? "All countries"}
+              </h3>
+              {parentProps && <SourceBadge props={parentProps} />}
             </div>
+
+            <div className={styles.stats} data-columns={showTourCost ? 2 : 3}>
+              {(
+                [
+                  ["population", "People", formatPopulation(totals.population)],
+                  ["cost", "Cost", formatCost(totals.cost)],
+                  ["count", detectedHere ? DETECTED_CHILD_LABEL[level] : CHILD_LABEL[level], String(totals.count)],
+                ] as const
+              )
+                // The team tour line already gives the cost here, so don't repeat it.
+                .filter(([key]) => !(showTourCost && key === "cost"))
+                .map(([key, label, value]) => (
+                <button
+                  key={key}
+                  className={styles.stat}
+                  aria-expanded={explain === `stat:${key}`}
+                  onClick={() => toggleExplain(`stat:${key}`)}
+                >
+                  <span className={styles.statLabel}>{label}</span>
+                  <span className={styles.statValue}>{value}</span>
+                </button>
+              ))}
+            </div>
+            {(explain === "stat:population" ||
+              explain === "stat:cost" ||
+              explain === "stat:count") && (
+              <ExplainBox
+                explanation={explainStat(explain.slice(5) as StatKey, panelContext)}
+              />
+            )}
+
+            {/* Inside a scan the stats above already are the detections, so no second line. */}
+            {(level === 0 || (level === 1 && detectedHere)) && (
+              <button
+                className={styles.detected}
+                aria-expanded={explain === "stat:detected"}
+                onClick={() => toggleExplain("stat:detected")}
+              >
+                <strong>{level === 0 ? "Scanned so far" : "Found by scans"}</strong>
+                {level === 0
+                  ? scans.length
+                    ? `${scans.length} areas · ${formatPopulation(detectedVillages)} settlements`
+                    : "No scans yet"
+                  : `${formatPopulation(sum(collection, "estimated_population"))} people in ${totals.count} scan areas`}
+              </button>
+            )}
+            {explain === "stat:detected" && (
+              <ExplainBox explanation={explainStat("detected", panelContext)} />
+            )}
+
+            {showTourCost && extras?.tour && (
+              <button
+                className={styles.detected}
+                aria-expanded={explain === "stat:tour"}
+                onClick={() => toggleExplain("stat:tour")}
+              >
+                <strong>Team tour</strong>
+                {formatCost(extras.tour.summary.costUsd)} travel for{" "}
+                {extras.tour.summary.stops} stops
+              </button>
+            )}
+            {explain === "stat:tour" && extras?.tour && (
+              <ExplainBox explanation={explainTour(extras.tour.summary)} />
+            )}
           </>
         )}
-        {level === 2 && detectedHere && !extras?.tour && (
-          <p className={styles.hint}>No team tour for this scan yet. It gets one when the batch re-runs it.</p>
-        )}
 
-        {selected && (
-          <div className={styles.selected}>
-            <p className="eyebrow">Selected</p>
-            <strong>{selected.name}</strong>
-            <VillageDetails
-              props={selected}
-              tour={extras?.tour?.summary ?? null}
-              open={explain}
-              onToggle={toggleExplain}
-            />
-          </div>
-        )}
-
-        <div className={styles.legend}>
-          <span>Est. cost</span>
-          <div className={styles.ramp} />
-          <div className={styles.rampLabels}>
-            <span>Lower</span>
-            <span>Higher</span>
-          </div>
-          <ul className={styles.key}>
-            <li>
-              <i className={styles.keyDetected} /> Detected by satellite scan
-            </li>
-            <li>
-              <i className={styles.keyModeled} /> Modeled estimate
-            </li>
-            {((level === 0 && scans.length > 0) || (level === 1 && detectedHere)) && (
-              <>
+        <div className={styles.legendBox}>
+          <button
+            className={styles.legendToggle}
+            aria-expanded={legendOpen}
+            onClick={() => setLegendOpen((o) => !o)}
+          >
+            Map key
+          </button>
+          {legendOpen && (
+            <div className={styles.legend}>
+              <span>Cost</span>
+              <div className={styles.ramp} />
+              <div className={styles.rampLabels}>
+                <span>Lower</span>
+                <span>Higher</span>
+              </div>
+              <ul className={styles.key}>
                 <li>
-                  <i className={styles.keyScan} data-status="reached" /> Scan with clinic routes
+                  <i className={styles.keyDetected} /> Satellite scan
                 </li>
                 <li>
-                  <i className={styles.keyScan} data-status="noClinic" /> Settlements, no clinic in range
+                  <i className={styles.keyModeled} /> Estimate only
                 </li>
-                <li>
-                  <i className={styles.keyScan} data-status="empty" /> No settlements found
-                </li>
-              </>
-            )}
-            {showTour && (
-              <li>
-                <i className={styles.keyTour} /> Team tour (clinic → every stop → clinic)
-              </li>
-            )}
-            {!showTour && extras && extras.routes.features.length > 0 && (
-              <>
-                <li>
-                  <i className={styles.keyRoute} /> Road route from clinic
-                </li>
-                <li>
-                  <i className={styles.keyOffroad} /> Off-road stretch
-                </li>
-                <li>
-                  <i className={styles.keyClinic} /> Clinic
-                </li>
-              </>
-            )}
-          </ul>
+                {((level === 0 && scans.length > 0) || (level === 1 && detectedHere)) && (
+                  <>
+                    <li>
+                      <i className={styles.keyScan} data-status="reached" /> Scan with clinic routes
+                    </li>
+                    <li>
+                      <i className={styles.keyScan} data-status="noClinic" /> Settlements, no clinic nearby
+                    </li>
+                    <li>
+                      <i className={styles.keyScan} data-status="empty" /> No settlements found
+                    </li>
+                  </>
+                )}
+                {showTour && (
+                  <li>
+                    <i className={styles.keyTour} /> Team tour
+                  </li>
+                )}
+                {!showTour && extras && extras.routes.features.length > 0 && (
+                  <>
+                    <li>
+                      <i className={styles.keyRoute} /> Road route from clinic
+                    </li>
+                    <li>
+                      <i className={styles.keyOffroad} /> Off-road stretch
+                    </li>
+                    <li>
+                      <i className={styles.keyClinic} /> Clinic
+                    </li>
+                  </>
+                )}
+              </ul>
+            </div>
+          )}
         </div>
 
         <p className={styles.hint}>
           {loading ? "Loading…" : hint}
-          {level > 0 && !loading && <> Press Esc to go back.</>}
+          {level > 0 && !loading && <> Esc goes back.</>}
         </p>
       </aside>
 
@@ -1136,98 +1140,86 @@ function VillageSummary({ props }: { props: AreaProperties }) {
   return (
     <dl className={styles.details}>
       <div>
-        <dt>Certainty</dt>
-        <dd>
-          {props.certainty}
-          <small>
-            {props.detection === "osm"
-              ? " · OSM confirmed"
-              : " · satellite only"}
-          </small>
-        </dd>
+        <dt>Confidence</dt>
+        <dd>{confidenceLevel(props)}</dd>
       </div>
       {props.reach_label && (
         <div>
-          <dt>Reach</dt>
-          <dd>
-            {props.reach_label} · {formatCost(props.reach_cost ?? 0)}
-          </dd>
+          <dt>Access</dt>
+          <dd>{accessLabel(props)}</dd>
         </div>
       )}
-      <div>
-        <dt>Clinic</dt>
-        <dd>{props.clinic_name ?? "none in range"}</dd>
-      </div>
     </dl>
   );
 }
 
-/** Every number for the selected village; each row opens an explanation of itself. */
-function VillageDetails({
+/** The selected settlement, at the top of the panel. Every row explains itself when clicked. */
+function SettlementCard({
   props,
   tour,
+  backLabel,
   open,
   onToggle,
+  onClose,
 }: {
   props: AreaProperties;
   tour: TourSummary | null;
+  backLabel: string;
   open: string | null;
   onToggle: (key: string) => void;
+  onClose: () => void;
 }) {
-  const rows: [VillageKey, string, ReactNode][] = [];
-  if (props.lat !== undefined && props.lon !== undefined) {
-    rows.push(["location", "Location", formatLatLon(props.lat, props.lon)]);
-  }
-  rows.push(
-    ["population", "Population", formatPopulation(props.estimated_population)],
+  const rows: [VillageKey, string, ReactNode][] = [
+    ["population", "People", formatPopulation(props.estimated_population)],
     ["cost", "Cost", formatCost(props.estimated_cost)],
-  );
+  ];
   if (props.certainty !== undefined) {
     rows.push(
-      [
-        "certainty",
-        "Certainty",
-        <>
-          {props.certainty}
-          <small>
-            {props.detection === "osm"
-              ? " · OSM confirmed"
-              : " · satellite only"}
-          </small>
-        </>,
-      ],
-      [
-        "reach",
-        "Reach",
-        props.reach_label
-          ? `${props.reach_label} · ${props.reach_difficulty}/100`
-          : "–",
-      ],
-      ["clinic", "Clinic", props.clinic_name ?? "none in range"],
+      ["certainty", "Confidence", confidenceLabel(props)],
+      ["reach", "Access", accessLabel(props)],
       [
         "tour",
         "Tour stop",
-        !tour ? "–" : props.tour_stop !== undefined ? `${props.tour_stop} of ${tour.stops}` : "skipped",
+        !tour ? "–" : props.tour_stop !== undefined ? `${props.tour_stop} of ${tour.stops}` : "Not on tour",
       ],
     );
   }
+  const explainRow = (key: VillageKey) =>
+    open === `village:${key}` && <ExplainBox explanation={explainVillage(key, props, tour)} />;
   return (
-    <div className={styles.details}>
-      {rows.map(([key, label, value]) => (
-        <div key={key}>
+    <div className={styles.card}>
+      <button className={styles.back} onClick={onClose}>
+        ← {backLabel}
+      </button>
+      <div>
+        <p className="eyebrow">Settlement</p>
+        <h3 className={styles.title}>{props.name}</h3>
+        {props.lat !== undefined && props.lon !== undefined && (
           <button
-            className={styles.detailRow}
-            aria-expanded={open === `village:${key}`}
-            onClick={() => onToggle(`village:${key}`)}
+            className={styles.coords}
+            aria-expanded={open === "village:location"}
+            onClick={() => onToggle("village:location")}
           >
-            <span>{label}</span>
-            <span>{value}</span>
+            {formatLatLon(props.lat, props.lon)}
           </button>
-          {open === `village:${key}` && (
-            <ExplainBox explanation={explainVillage(key, props, tour)} />
-          )}
-        </div>
-      ))}
+        )}
+      </div>
+      {explainRow("location")}
+      <div className={styles.details}>
+        {rows.map(([key, label, value]) => (
+          <div key={key}>
+            <button
+              className={styles.detailRow}
+              aria-expanded={open === `village:${key}`}
+              onClick={() => onToggle(`village:${key}`)}
+            >
+              <span>{label}</span>
+              <span>{value}</span>
+            </button>
+            {explainRow(key)}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

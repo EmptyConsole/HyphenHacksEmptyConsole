@@ -45,6 +45,8 @@ const CLINIC_RANGE_KM = 40;
 const TOUR_VERSION = 2;
 // Wait before retrying a box that failed because Overpass was busy.
 const BUSY_RETRY_MS = 45000;
+// Longest wait after failures in a row, before trying the next grid cell.
+const MAX_BACKOFF_MS = 10 * 60 * 1000;
 // A box that takes longer than this is abandoned.
 const RUN_TIMEOUT_MS = 8 * 60 * 1000;
 const OVERPASS_SERVERS = [
@@ -429,6 +431,7 @@ async function scanGrid(countryId, shapes, deadline, shard) {
       `${cells.filter((c) => done.has(c.id)).length} already scanned`
   );
   let saved = 0;
+  let failures = 0;
   for (const cell of cells) {
     if (Date.now() > deadline) break;
     if (done.has(cell.id)) continue;
@@ -436,8 +439,18 @@ async function scanGrid(countryId, shapes, deadline, shard) {
       label: `Grid cell ${cell.id}`,
       gridCell: cell.id,
     });
-    if (ok) saved += 1;
-    await sleep(PAUSE_MS);
+    if (ok) {
+      saved += 1;
+      failures = 0;
+      await sleep(PAUSE_MS);
+    } else {
+      // Repeated failures mean Overpass is limiting this connection. Back off instead of
+      // burning through cells; failed cells are not saved, so a later run retries them.
+      failures += 1;
+      const wait = Math.min(60_000 * 2 ** (failures - 1), MAX_BACKOFF_MS);
+      log(`${country.name}: ${failures} failure(s) in a row, waiting ${Math.round(wait / 1000)}s`);
+      await sleep(wait);
+    }
   }
   const finished = cells.filter((c) => done.has(c.id)).length + saved;
   log(`${country.name}: ${finished} of ${cells.length} grid cells in this share scanned`);
