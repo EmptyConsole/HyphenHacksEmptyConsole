@@ -7,6 +7,43 @@
   overflow: hidden;
   background: var(--color-bg-elevated);
   box-shadow: var(--shadow-3);
+  color: var(--color-text);
+
+  /* Tints over panel surfaces; flipped for the light theme below. */
+  --tint-1: rgba(255, 255, 255, 0.04);
+  --tint-2: rgba(255, 255, 255, 0.06);
+  --tint-3: rgba(255, 255, 255, 0.08);
+  --tint-4: rgba(255, 255, 255, 0.1);
+  --underline: rgba(255, 255, 255, 0.25);
+  --modeled-line: rgba(255, 255, 255, 0.28);
+  --attrib-bg: rgba(5, 7, 13, 0.7);
+  --ctrl-icon-filter: invert(1);
+}
+
+.wrap[data-theme="light"] {
+  --color-bg: #eef1f7;
+  --color-bg-elevated: #f5f7fb;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f0f2f8;
+  --color-surface-glass: rgba(255, 255, 255, 0.82);
+  --color-border: rgba(15, 19, 32, 0.1);
+  --color-border-strong: rgba(15, 19, 32, 0.18);
+  --color-text: #0f1320;
+  --color-text-secondary: #474d63;
+  --color-text-tertiary: #646a80;
+  --color-constellation: #4f5fe0;
+  --color-constellation-soft: rgba(79, 95, 224, 0.12);
+  --shadow-2: 0 8px 24px rgba(15, 19, 32, 0.12);
+  --shadow-3: 0 24px 64px rgba(15, 19, 32, 0.16);
+
+  --tint-1: rgba(15, 19, 32, 0.03);
+  --tint-2: rgba(15, 19, 32, 0.05);
+  --tint-3: rgba(15, 19, 32, 0.07);
+  --tint-4: rgba(15, 19, 32, 0.09);
+  --underline: rgba(15, 19, 32, 0.3);
+  --modeled-line: rgba(15, 19, 32, 0.3);
+  --attrib-bg: rgba(255, 255, 255, 0.75);
+  --ctrl-icon-filter: none;
 }
 
 .map {
@@ -42,7 +79,7 @@
   display: inline-flex;
   padding: 2px;
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--tint-1);
 }
 
 .themeButton {
@@ -57,9 +94,9 @@
 }
 
 .themeButton[data-active] {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--tint-4);
   color: var(--color-text);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px var(--tint-3);
 }
 
 /* ---------- Side panel ---------- */
@@ -107,13 +144,13 @@
 }
 
 .crumbs button:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint-3);
   color: var(--color-text);
 }
 
 .crumbs button[data-current] {
   color: var(--color-text);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint-3);
 }
 
 .title {
@@ -146,20 +183,20 @@
 .stat:hover,
 .detected:hover,
 .detailRow:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--tint-2);
 }
 
 .stat[aria-expanded="true"],
 .detected[aria-expanded="true"],
 .detailRow[aria-expanded="true"] {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint-3);
 }
 
 .statLabel {
   font-size: var(--text-micro);
   color: var(--color-text-tertiary);
   text-transform: capitalize;
-  text-decoration: underline dotted rgba(255, 255, 255, 0.25);
+  text-decoration: underline dotted var(--underline);
   text-underline-offset: 3px;
 }
 
@@ -177,7 +214,7 @@
   padding: var(--space-3);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--tint-1);
   font-size: var(--text-small);
   color: var(--color-text-secondary);
   line-height: var(--leading-snug);
@@ -351,7 +388,7 @@
 }
 
 .detected strong {
-  text-decoration: underline dotted rgba(255, 255, 255, 0.25);
+  text-decoration: underline dotted var(--underline);
   text-underline-offset: 3px;
   font-family: var(--font-sans);
   font-size: var(--text-micro);
@@ -391,7 +428,7 @@ dl.details > div {
 
 .detailRow span:first-child {
   color: var(--color-text-tertiary);
-  text-decoration: underline dotted rgba(255, 255, 255, 0.25);
+  text-decoration: underline dotted var(--underline);
   text-underline-offset: 3px;
 }
 
@@ -441,7 +478,7 @@ dl.details > div {
 
 .keyModeled {
   height: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  border: 1px solid var(--modeled-line);
   border-radius: 2px;
 }
 
@@ -461,6 +498,33 @@ dl.details > div {
   border-radius: 50%;
   background: var(--color-text);
   box-shadow: 0 0 0 2px var(--color-constellation);
+}
+
+.keyTour {
+  height: 0;
+  border-top: 3px solid var(--color-accent);
+}
+
+.routeToggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  font-size: var(--text-micro);
+}
+
+.routeToggle button {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.routeToggle button[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text);
 }
 
 /* ---------- Live scan ---------- */
@@ -495,7 +559,7 @@ dl.details > div {
 }
 
 .scanBox button:disabled {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint-3);
   color: var(--color-text-tertiary);
   cursor: not-allowed;
 }
@@ -513,11 +577,11 @@ dl.details > div {
 }
 
 .wrap :global(.maplibregl-ctrl-icon) {
-  filter: invert(1);
+  filter: var(--ctrl-icon-filter);
 }
 
 .wrap :global(.maplibregl-ctrl-attrib) {
-  background: rgba(5, 7, 13, 0.7);
+  background: var(--attrib-bg);
   color: var(--color-text-tertiary);
 }
 

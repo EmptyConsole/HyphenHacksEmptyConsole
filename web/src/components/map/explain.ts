@@ -1,5 +1,5 @@
 import { baselineConfig } from "@/data/baselineConfig";
-import type { AreaCollection, AreaProperties, ScanMeta } from "@/data/types";
+import type { AreaCollection, AreaProperties, ScanMeta, TourSummary } from "@/data/types";
 import { formatCost, formatPopulation } from "@/lib/format";
 
 /**
@@ -29,7 +29,7 @@ export interface Explanation {
 }
 
 export type StatKey = "population" | "cost" | "count" | "detected";
-export type VillageKey = "population" | "cost" | "certainty" | "reach" | "clinic";
+export type VillageKey = "location" | "population" | "cost" | "certainty" | "reach" | "clinic" | "tour";
 
 export interface PanelContext {
   level: number;
@@ -319,7 +319,64 @@ function villageClinic(v: AreaProperties): Explanation {
       };
 }
 
-export function explainVillage(key: VillageKey, v: AreaProperties): Explanation {
+/** Plain-text coordinates, e.g. "9.45231° N, 9.02114° E". */
+export function formatLatLon(lat: number, lon: number) {
+  const ns = lat >= 0 ? "N" : "S";
+  const ew = lon >= 0 ? "E" : "W";
+  return `${Math.abs(lat).toFixed(5)}° ${ns}, ${Math.abs(lon).toFixed(5)}° ${ew}`;
+}
+
+function villageLocation(v: AreaProperties): Explanation {
+  return {
+    summary:
+      "The center of the settlement's outline: the average of its corners. Routes and the team tour arrive at this point.",
+    rows:
+      v.lat !== undefined && v.lon !== undefined
+        ? [
+            { label: "Latitude", value: v.lat.toFixed(5) },
+            { label: "Longitude", value: v.lon.toFixed(5) },
+          ]
+        : undefined,
+    note: "Five decimals is about 1 m. Paste the pair into any map app to find the spot.",
+  };
+}
+
+function villageTourStop(v: AreaProperties, tour: TourSummary | null): Explanation {
+  if (!tour) return { summary: "This scan has no team tour yet. It gets one when the batch re-runs it." };
+  if (v.tour_stop === undefined) {
+    return {
+      summary: `Skipped by the team tour: its certainty (${v.certainty}) is below ${tour.minCertainty}, so it is more likely bare ground than homes.`,
+    };
+  }
+  return {
+    summary: `Stop ${v.tour_stop} of ${tour.stops} on the team's round trip from ${tour.depotName ?? "the start"}. The order is the one that keeps total travel cost lowest.`,
+  };
+}
+
+export function explainTour(t: TourSummary): Explanation {
+  const start =
+    t.depotKind === "clinic"
+      ? (t.depotName ?? "the nearest clinic")
+      : "the settlement closest to a road (no clinic in range)";
+  return {
+    summary: `One team leaves ${start}, visits all ${t.stops} settlements with certainty ${t.minCertainty} or more, and comes back. The visiting order is chosen to keep travel cost as low as possible.`,
+    rows: [
+      { label: `On roads: ${km(t.roadMeters)}`, value: usd(t.roadUsd) },
+      { label: `Off-road: ${km(t.offroadMeters)}`, value: usd(t.offroadUsd) },
+      { label: "= Tour travel cost", value: usd(t.costUsd) },
+      { label: "+ Vaccinating these settlements", value: usd(t.vaccinationUsd) },
+      { label: "= Campaign cost", value: usd(t.costUsd + t.vaccinationUsd) },
+    ],
+    note:
+      `Each leg uses whichever is cheaper: OSM roads ($1.20–$4.50/km, plus $${DETECTOR.offroadUsdPerKm}/km to reach the road) or a straight off-road line at $${DETECTOR.offroadUsdPerKm}/km. ` +
+      `Visiting the nearest stop each time costs ${usd(t.greedyUsd)}; swapping legs where that helps (2-opt) brings it to ${usd(t.costUsd)}. ` +
+      `A separate round trip to each settlement would cost about ${usd(t.separateTripsUsd)}. ` +
+      (t.skipped ? `${t.skipped} detections below certainty ${t.minCertainty} were skipped.` : ""),
+  };
+}
+
+export function explainVillage(key: VillageKey, v: AreaProperties, tour: TourSummary | null = null): Explanation {
+  if (key === "location") return villageLocation(v);
   if (v.data_source !== "detected") {
     return {
       summary: `Placeholder value: ${v.name} is a generated share of its region's modeled estimate, not a detected settlement.`,
@@ -336,5 +393,7 @@ export function explainVillage(key: VillageKey, v: AreaProperties): Explanation 
       return villageCertainty(v);
     case "clinic":
       return villageClinic(v);
+    case "tour":
+      return villageTourStop(v, tour);
   }
 }

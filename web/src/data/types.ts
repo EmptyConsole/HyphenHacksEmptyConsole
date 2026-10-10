@@ -49,6 +49,11 @@ export interface AreaProperties {
   offroad_m?: number;
   /** Tracks, unpaved roads and off-road stretches, meters. */
   slow_m?: number;
+  /** Position in the scan's team tour (1 = first stop). Unset when skipped or no tour. */
+  tour_stop?: number;
+  /** Center of the settlement outline (average of its corners). */
+  lon?: number;
+  lat?: number;
 
   // Countries only.
   /** World Bank rural population, or an area-based estimate when the World Bank has none. */
@@ -80,11 +85,41 @@ export interface ClinicProperties {
 export type RouteCollection = FeatureCollection<LineString, RouteProperties>;
 export type ClinicCollection = FeatureCollection<Point, ClinicProperties>;
 
+/** One team's round trip from a clinic through every settlement worth visiting. */
+export interface TourSummary {
+  depotKind: "clinic" | "settlement";
+  depotName: string | null;
+  /** Settlements visited. */
+  stops: number;
+  /** Settlements left out for certainty below `minCertainty`. */
+  skipped: number;
+  minCertainty: number;
+  /** Travel cost of the whole loop, USD. */
+  costUsd: number;
+  roadUsd: number;
+  offroadUsd: number;
+  roadMeters: number;
+  offroadMeters: number;
+  /** Cost of the nearest-stop-first order before 2-opt improved it. */
+  greedyUsd: number;
+  /** Vaccination cost of the visited settlements. */
+  vaccinationUsd: number;
+  /** Rough cost of a separate clinic round trip to each visited settlement. */
+  separateTripsUsd: number;
+}
+
+export interface TourLayer {
+  summary: TourSummary;
+  line: FeatureCollection<LineString>;
+}
+
 /** Village polygons plus the clinic routes that reach them. */
 export interface VillageLayer {
   areas: AreaCollection;
   routes: RouteCollection;
   clinics: ClinicCollection;
+  /** Null for filler areas and for scans made before tours existed. */
+  tour: TourLayer | null;
 }
 
 /** One saved run of detect-villages.js. Mirrors `<id>.meta.json`. */
@@ -101,6 +136,11 @@ export interface ScanMeta {
   clinicRangeKm?: number;
   /** Set when the scan was re-run in place. */
   updatedAt?: string;
+  /** Present once the scan has a team tour. */
+  tourVersion?: number;
+  /** Travel cost of the team tour, USD. */
+  tourCostUsd?: number | null;
+  tourStops?: number;
   villages: number;
   population: number;
   costUsd: number;

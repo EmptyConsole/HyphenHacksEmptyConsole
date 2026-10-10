@@ -12,6 +12,7 @@
 //   5. Estimate population and the money to vaccinate each village.
 //   6. Price a route from the nearest clinic along OSM roads.
 //   7. Recommend the polygon with the lowest predicted cost, and that route.
+//   8. Plan one team tour: clinic → every settlement → clinic, ordered for lowest cost.
 //
 // GeoJSON is printed on stdout. Progress lines go to stderr.
 
@@ -27,6 +28,8 @@ const OPEN_RADIUS = 1;
 const CLOSE_RADIUS = 12;
 // Blobs smaller than this are a shed or noise, not a village. ~400 px is ~500 m².
 const MIN_PIXELS = 400;
+// A blob with no separate roof at all is bare ground or a road, not a settlement.
+const MIN_ROOF_CLUSTERS = 1;
 // An OSM place this close to a polygon counts as the same settlement.
 const OSM_METERS = 150;
 // Douglas–Peucker tolerance in pixels. Drops stair-steps along a straight wall.
@@ -58,6 +61,10 @@ const HEALTHCARE_USD_PER_PERSON = 10;
 const HEALTHCARE_USD_PER_STOP = 100;
 // Last mile with no road. Slow, so the team's time dominates the fuel.
 const OFFROAD_USD_PER_KM = 8;
+// The team tour skips detections below this certainty: they are often bare ground, not homes.
+const TOUR_MIN_CERTAINTY = 30;
+// 2-opt passes over the tour. Each pass tries every pair of legs; it usually settles in a few.
+const TOUR_MAX_PASSES = 50;
 
 // Read --south --west --north --east from the command line.
 // Latitudes must stay inside Web Mercator's usable range.
@@ -1280,7 +1287,7 @@ function isLowerCost(score, other) {
 
 // Route every village, then keep the polygon whose predicted cost is lowest.
 async function recommendAccess(features, bbox) {
-  if (features.length === 0) return null;
+  if (features.length === 0) return { recommendation: null, tour: null };
 
   let clinics = [];
   try {
@@ -1292,14 +1299,13 @@ async function recommendAccess(features, bbox) {
 
   const routed = clinicsNearVillages(features, clinics);
   let graph = buildRoadGraph([]);
-  if (routed.length) {
-    try {
-      const ways = await fetchRoads(bboxAround(bbox, routed));
-      graph = buildRoadGraph(ways);
-      console.error(`road segments ${graph.segments.length}`);
-    } catch (error) {
-      console.error(`roads unavailable: ${error.message || error}`);
-    }
+  // Roads are needed even with no clinic: the team tour drives between settlements.
+  try {
+    const ways = await fetchRoads(bboxAround(bbox, routed));
+    graph = buildRoadGraph(ways);
+    console.error(`road segments ${graph.segments.length}`);
+  } catch (error) {
+    console.error(`roads unavailable: ${error.message || error}`);
   }
 
   const scores = scoreAccess(features, routed, graph);
@@ -1328,7 +1334,7 @@ async function recommendAccess(features, bbox) {
       `(healthcare $${best.healthcareUsd}, reach $${best.reachUsd}, ` +
       `${best.reachLabel} ${best.reachDifficulty}/100, population ${best.population}, ${clinicName})`
   );
-  return {
+  const recommendation = {
     polygon: features[bestIndex].geometry.coordinates[0],
     population: best.population,
     healthcareUsd: best.healthcareUsd,
@@ -1338,6 +1344,215 @@ async function recommendAccess(features, bbox) {
     predictedCostUsd: best.predictedCostUsd,
     route: { type: "LineString", coordinates: best.route },
     clinic: best.clinic,
+  };
+  const tour = planTour(features, scores, routed, graph);
+  return { recommendation, tour };
+}
+
+// --- Team tour -------------------------------------------------------------
+// One vaccination team leaves a clinic, visits every settlement, and returns.
+// Each leg costs the cheaper of driving (roads + off-road gaps) or a straight
+// off-road line. The visiting order is nearest-neighbor, then improved by 2-opt.
+
+// Cheapest cost from one road node to every node, stopping once `targets` are settled.
+function roadCosts(graph, source, targets) {
+  const dist = new Map([[source, 0]]);
+  const prev = new Map([[source, null]]);
+  const heap = [[0, source]];
+  const settled = new Set();
+  let remaining = targets.size;
+  while (heap.length && remaining > 0) {
+    const [cost, node] = heapPop(heap);
+    if (settled.has(node) || dist.get(node) !== cost) continue;
+    settled.add(node);
+    if (targets.has(node)) remaining -= 1;
+    for (const edge of graph.adj.get(node) || []) {
+      const next = cost + edge.usd;
+      if (settled.has(edge.to) || (dist.has(edge.to) && dist.get(edge.to) <= next)) continue;
+      dist.set(edge.to, next);
+      prev.set(edge.to, { node, meters: edge.meters, usd: edge.usd, slow: edge.slow });
+      heapPush(heap, [next, edge.to]);
+    }
+  }
+  return { dist, prev };
+}
+
+// The clinic most settlements already route from, or else the nearest one.
+function pickDepot(stops, scores, clinics) {
+  const votes = new Map();
+  for (const stop of stops) {
+    const clinic = scores[stop.index].clinic;
+    if (clinic) votes.set(clinic.osmId, (votes.get(clinic.osmId) || 0) + 1);
+  }
+  let best = null;
+  for (const clinic of clinics) {
+    const count = votes.get(clinic.osmId) || 0;
+    if (count && (!best || count > best.count)) best = { clinic, count };
+  }
+  return best ? best.clinic : null;
+}
+
+// Total of a closed tour under the symmetric cost matrix.
+function tourLength(order, cost) {
+  let total = 0;
+  for (let i = 0; i < order.length - 1; i++) total += cost[order[i]][order[i + 1]];
+  return total;
+}
+
+// Reverse order[i..j] whenever that makes the loop cheaper. order[0] and the end stay put.
+function twoOpt(order, cost) {
+  for (let pass = 0; pass < TOUR_MAX_PASSES; pass++) {
+    let improved = false;
+    for (let i = 1; i < order.length - 2; i++) {
+      for (let j = i + 1; j < order.length - 1; j++) {
+        const a = order[i - 1];
+        const b = order[i];
+        const c = order[j];
+        const d = order[j + 1];
+        const delta = cost[a][c] + cost[b][d] - cost[a][b] - cost[c][d];
+        if (delta < -1e-9) {
+          for (let lo = i, hi = j; lo < hi; lo++, hi--) [order[lo], order[hi]] = [order[hi], order[lo]];
+          improved = true;
+        }
+      }
+    }
+    if (!improved) break;
+  }
+  return order;
+}
+
+function planTour(features, scores, clinics, graph) {
+  const stops = [];
+  let skipped = 0;
+  features.forEach((feature, index) => {
+    if (feature.properties.certainty < TOUR_MIN_CERTAINTY) {
+      skipped += 1;
+      return;
+    }
+    const [lon, lat] = ringCentroid(feature.geometry.coordinates[0]);
+    stops.push({ index, lon, lat, snap: snapToRoad(graph, lon, lat) });
+  });
+  if (stops.length === 0) return null;
+
+  // Node 0 is the depot: a clinic, or the settlement closest to a road when no clinic is in range.
+  const clinic = pickDepot(stops, scores, clinics);
+  let depot;
+  if (clinic) {
+    depot = {
+      lon: clinic.lon,
+      lat: clinic.lat,
+      snap: snapToRoad(graph, clinic.lon, clinic.lat),
+      info: { kind: "clinic", name: clinic.name, osmId: clinic.osmId, lon: round6(clinic.lon), lat: round6(clinic.lat) },
+    };
+  } else {
+    const start = stops.reduce((a, b) => ((a.snap?.meters ?? Infinity) <= (b.snap?.meters ?? Infinity) ? a : b));
+    depot = {
+      lon: start.lon,
+      lat: start.lat,
+      snap: start.snap,
+      info: { kind: "settlement", name: features[start.index].properties.osmName, lon: round6(start.lon), lat: round6(start.lat) },
+    };
+  }
+  const nodes = [depot, ...stops];
+  const n = nodes.length;
+  const offroadUsd = (snap) => (snap.meters / 1000) * OFFROAD_USD_PER_KM;
+
+  // Directed leg costs. `road[i][j]` is false when the straight off-road line is cheaper.
+  const targets = new Set(nodes.filter((node) => node.snap).map((node) => node.snap.id));
+  const direct = Array.from({ length: n }, () => new Float64Array(n));
+  const road = Array.from({ length: n }, () => new Uint8Array(n));
+  for (let i = 0; i < n; i++) {
+    const from = nodes[i];
+    const reach = from.snap ? roadCosts(graph, from.snap.id, targets).dist : null;
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const to = nodes[j];
+      const straight = (metersBetween(from.lon, from.lat, to.lon, to.lat) / 1000) * OFFROAD_USD_PER_KM;
+      const viaRoad =
+        reach && to.snap && reach.has(to.snap.id)
+          ? offroadUsd(from.snap) + reach.get(to.snap.id) + offroadUsd(to.snap)
+          : Infinity;
+      direct[i][j] = Math.min(straight, viaRoad);
+      road[i][j] = viaRoad < straight ? 1 : 0;
+    }
+  }
+  // Roads are almost all two-way out here, so plan on the cheaper direction of each pair.
+  const cost = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => Math.min(direct[i][j], direct[j][i]))
+  );
+
+  // Nearest neighbor from the depot, back to the depot, then 2-opt.
+  const order = [0];
+  const left = new Set(Array.from({ length: n - 1 }, (_, k) => k + 1));
+  while (left.size) {
+    const last = order[order.length - 1];
+    let next = null;
+    for (const k of left) if (next === null || cost[last][k] < cost[last][next]) next = k;
+    order.push(next);
+    left.delete(next);
+  }
+  order.push(0);
+  const greedyUsd = tourLength(order, cost);
+  twoOpt(order, cost);
+
+  // Draw each leg and add up road and off-road distance.
+  const coordinates = [];
+  let roadMeters = 0;
+  let roadUsd = 0;
+  let offroadMeters = 0;
+  let offroadUsdTotal = 0;
+  for (let k = 0; k < order.length - 1; k++) {
+    // Walk the leg in whichever direction the plan priced, then flip it back if needed.
+    let a = order[k];
+    let b = order[k + 1];
+    const flipped = direct[b][a] < direct[a][b];
+    if (flipped) [a, b] = [b, a];
+    const from = nodes[a];
+    const to = nodes[b];
+    let points;
+    if (road[a][b]) {
+      const { prev } = roadCosts(graph, from.snap.id, new Set([to.snap.id]));
+      const traced = traceRoad(graph, prev, to.snap.id);
+      points = [[from.lon, from.lat], ...traced.points, [to.lon, to.lat]];
+      roadMeters += traced.roadMeters;
+      roadUsd += traced.roadUsd;
+      offroadMeters += from.snap.meters + to.snap.meters;
+      offroadUsdTotal += offroadUsd(from.snap) + offroadUsd(to.snap);
+    } else {
+      const meters = metersBetween(from.lon, from.lat, to.lon, to.lat);
+      points = [[from.lon, from.lat], [to.lon, to.lat]];
+      offroadMeters += meters;
+      offroadUsdTotal += (meters / 1000) * OFFROAD_USD_PER_KM;
+    }
+    if (flipped) points.reverse();
+    for (const [lon, lat] of points) pushCoord(coordinates, lon, lat);
+  }
+
+  // Visit position on each settlement, 1 = first stop after the depot.
+  const visit = order.slice(1, -1).map((node) => nodes[node].index);
+  visit.forEach((featureIndex, position) => {
+    features[featureIndex].properties.tourStop = position + 1;
+  });
+
+  const costUsd = Math.round(roadUsd + offroadUsdTotal);
+  console.error(
+    `team tour: ${stops.length} stops, $${costUsd} ` +
+      `(${(roadMeters / 1000).toFixed(1)} km road, ${(offroadMeters / 1000).toFixed(1)} km off-road), ` +
+      `nearest-neighbor $${Math.round(greedyUsd)} improved by 2-opt`
+  );
+  return {
+    depot: depot.info,
+    minCertainty: TOUR_MIN_CERTAINTY,
+    stops: stops.length,
+    skipped,
+    order: visit,
+    costUsd,
+    roadUsd: Math.round(roadUsd),
+    offroadUsd: Math.round(offroadUsdTotal),
+    roadMeters: Math.round(roadMeters),
+    offroadMeters: Math.round(offroadMeters),
+    greedyUsd: Math.round(greedyUsd),
+    route: { type: "LineString", coordinates },
   };
 }
 
@@ -1391,6 +1606,7 @@ async function main() {
   // One GeoJSON feature per village polygon.
   const features = [];
   for (const blob of blobs) {
+    if (blob.buildings < MIN_ROOF_CLUSTERS) continue;
     // Pixel outlines follow every stair-step. Keep only corners that change direction.
     const simplified = simplify(blob.ring, SIMPLIFY_PX);
     // A ring needs three corners. Fewer than that is a degenerate sliver.
@@ -1445,13 +1661,14 @@ async function main() {
     });
   }
 
-  // Price a clinic route for every polygon and keep the cheapest one.
-  const recommendation = await recommendAccess(features, bbox);
+  // Price a clinic route for every polygon, keep the cheapest one, and plan the team tour.
+  const { recommendation, tour } = await recommendAccess(features, bbox);
 
   // Wrap the polygons in the standard GeoJSON collection type.
   // `recommendation` is the route section: points, population, healthcare
   // money, reach difficulty, and the cost to get there.
-  const collection = { type: "FeatureCollection", recommendation, features };
+  // `tour` is one round trip from a clinic through every settlement worth visiting.
+  const collection = { type: "FeatureCollection", recommendation, tour, features };
   // Pretty-print to stdout so the JSON can be piped or saved on its own.
   console.log(JSON.stringify(collection, null, 2));
 }

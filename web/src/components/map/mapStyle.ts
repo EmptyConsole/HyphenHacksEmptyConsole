@@ -10,8 +10,34 @@ import { tokens } from "@/design/tokens";
 export const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 export type MapTheme = "dark" | "light";
 
+/** Per-theme map colors. Dark mode inverts the normal OSM tiles; light mode keeps them as-is. */
+export const MAP_THEMES = {
+  dark: {
+    background: tokens.color.bg,
+    modeledLine: "rgba(255,255,255,0.28)",
+    raster: {
+      "raster-brightness-min": 0.92,
+      "raster-brightness-max": 0.04,
+      "raster-hue-rotate": 180,
+      "raster-saturation": -0.55,
+      "raster-contrast": 0.1,
+    },
+  },
+  light: {
+    background: "#eef1f7",
+    modeledLine: "rgba(15,19,32,0.3)",
+    raster: {
+      "raster-brightness-min": 0,
+      "raster-brightness-max": 1,
+      "raster-hue-rotate": 0,
+      "raster-saturation": 0,
+      "raster-contrast": 0,
+    },
+  },
+} as const;
+
 export function getBaseStyle(mode: MapTheme): StyleSpecification {
-  const dark = mode === "dark";
+  const theme = MAP_THEMES[mode];
 
   return {
     version: 8,
@@ -29,20 +55,8 @@ export function getBaseStyle(mode: MapTheme): StyleSpecification {
       },
     },
     layers: [
-      { id: "background", type: "background", paint: { "background-color": tokens.color.bg } },
-      {
-        id: "osm",
-        type: "raster",
-        source: "osm",
-        // Dark mode inverts the normal OSM tiles; light mode keeps the default light basemap.
-        paint: {
-          "raster-brightness-min": dark ? 0.92 : 0,
-          "raster-brightness-max": dark ? 0.04 : 1,
-          "raster-hue-rotate": dark ? 180 : 0,
-          "raster-saturation": dark ? -0.55 : 0,
-          "raster-contrast": dark ? 0.1 : 0,
-        },
-      },
+      { id: "background", type: "background", paint: { "background-color": theme.background } },
+      { id: "osm", type: "raster", source: "osm", paint: { ...theme.raster } },
     ],
   };
 }

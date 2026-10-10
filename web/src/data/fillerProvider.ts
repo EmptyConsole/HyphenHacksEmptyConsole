@@ -118,6 +118,7 @@ export const fillerProvider: MapDataProvider = {
       areas: cachedChildren(region),
       routes: emptyRoutes,
       clinics: emptyClinics,
+      tour: null,
     });
   },
   getScans() {
