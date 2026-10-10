@@ -7,6 +7,7 @@ import Reveal from "@/components/problem/Reveal";
 import styles from "@/components/problem/ProblemPage.module.css";
 import DetectSteps from "./DetectSteps";
 import RouteDiagram from "./RouteDiagram";
+import TourDiagram from "./TourDiagram";
 import own from "./SolutionPage.module.css";
 
 function Cite({ id }: { id: SourceId }) {
@@ -57,7 +58,7 @@ function Section({
 
 /** `summary` is null in the prerendered shell, before the saved scans are read. */
 export default function SolutionPage({ summary }: { summary: ScanSummary | null }) {
-  const { find, check, reach, price, closing } = solutionContent;
+  const { find, check, reach, tour, price, closing } = solutionContent;
   const stats = solutionContent.stats(summary, { count, people: formatPopulation });
   const osmMatched = summary?.osmMatched ?? 0;
   const satelliteOnly = summary ? summary.settlements - summary.osmMatched : 0;
@@ -185,6 +186,22 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
             <p className={styles.footnote}>{reach.rateNote}</p>
           </figure>
         </Reveal>
+      </Section>
+
+      <Section {...tour}>
+        <figure className={styles.card}>
+          <figcaption className={styles.caption}>{tour.diagramCaption}</figcaption>
+          <TourDiagram />
+          <p className={styles.footnote}>{tour.diagramNote}</p>
+        </figure>
+        <ul className={styles.facts}>
+          {tour.facts.map((f) => (
+            <li key={f.label} className={styles.fact}>
+              <span className={styles.factValue}>{f.value}</span>
+              <span className={styles.factLabel}>{f.label}</span>
+            </li>
+          ))}
+        </ul>
       </Section>
 
       <Section {...price}>
