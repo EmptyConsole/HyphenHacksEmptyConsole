@@ -19,7 +19,7 @@ export default function Header() {
             <circle cx="13" cy="11" r="1.4" fill="currentColor" />
             <circle cx="17" cy="3" r="1.8" fill="var(--color-accent)" />
           </svg>
-          Constellations
+          Hestia
         </Link>
 
         <ul className={styles.tabs}>

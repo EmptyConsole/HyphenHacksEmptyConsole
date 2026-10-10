@@ -1,4 +1,4 @@
-# Constellations — web
+# Hestia — web
 
 Next.js frontend. Home page = rotating night-lights globe hero + drill-down map (world → country → region → village).
 

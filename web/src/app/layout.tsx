@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Constellations",
+  title: "Hestia",
   description: "Finding unmapped villages and routing vaccination teams to them.",
 };
 
