@@ -4,14 +4,46 @@ import path from "node:path";
 import type { ScanMeta, ScanRequest, ScanSummary } from "@/data/types";
 
 /**
- * Server-only. Scans live in web/data/scans as `<id>.json` (detector output) plus
- * `<id>.meta.json` (summary). scan-batch.js at the repo root writes the same files.
+ * Server-only. Scans are shared through Supabase (table public.scans, one row per scan,
+ * json = { meta, scan }) so every computer's scans reach every map. web/data/scans keeps
+ * a local copy as `<id>.json` (detector output) plus `<id>.meta.json` (summary), used
+ * when Supabase is unreachable or not configured. scan-batch.js writes both the same way.
+ *
+ * Keys come from web/.env.local (git-ignored): SUPABASE_URL and SUPABASE_SECRET_KEY.
  */
 
 const SCANS_DIR = path.join(process.cwd(), "data", "scans");
 const DETECTOR = path.join(process.cwd(), "..", "detect-villages.js");
 const RUN_TIMEOUT_MS = 8 * 60 * 1000;
 const ID_PATTERN = /^[0-9a-z-]+$/;
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY;
+const supabaseEnabled = Boolean(SUPABASE_URL && SUPABASE_KEY);
+
+async function supabase<T>(query: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${query}`, {
+    ...init,
+    cache: "no-store",
+    headers: { apikey: SUPABASE_KEY!, "Content-Type": "application/json", ...init.headers },
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Supabase ${response.status}: ${text.slice(0, 200)}`);
+  return (text ? JSON.parse(text) : null) as T;
+}
+
+/** Insert the scan, or replace the row that already holds this scan id. Same as supabase-store.js. */
+async function upsertScan(meta: ScanMeta, collection: unknown) {
+  const json = JSON.stringify({ json: { meta, scan: collection } });
+  const existing = await supabase<{ id: string }[]>(
+    `scans?select=id&json->meta->>id=eq.${encodeURIComponent(meta.id)}&limit=1`,
+  );
+  if (existing.length) {
+    await supabase(`scans?id=eq.${existing[0].id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: json });
+  } else {
+    await supabase("scans", { method: "POST", headers: { Prefer: "return=minimal" }, body: json });
+  }
+}
 
 type DetectedFeature = {
   properties: {
@@ -47,6 +79,19 @@ async function withCounts(meta: ScanMeta): Promise<ScanMeta> {
 }
 
 export async function listScans(): Promise<ScanMeta[]> {
+  if (supabaseEnabled) {
+    try {
+      const rows = await supabase<{ meta: ScanMeta }[]>("scans?select=meta:json->meta&order=created_at.asc");
+      const metas = await Promise.all(rows.filter((row) => row.meta).map((row) => withCounts(row.meta)));
+      return metas.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    } catch (error) {
+      console.error(`listScans: Supabase unavailable, using local files (${(error as Error).message})`);
+    }
+  }
+  return listLocalScans();
+}
+
+async function listLocalScans(): Promise<ScanMeta[]> {
   let files: string[];
   try {
     files = await readdir(SCANS_DIR);
@@ -75,6 +120,16 @@ export function summarizeScans(scans: ScanMeta[]): ScanSummary {
 /** The raw detector FeatureCollection as text, or null for an unknown id. */
 export async function readScan(id: string): Promise<string | null> {
   if (!ID_PATTERN.test(id)) return null;
+  if (supabaseEnabled) {
+    try {
+      const rows = await supabase<{ scan: unknown }[]>(
+        `scans?select=scan:json->scan&json->meta->>id=eq.${encodeURIComponent(id)}&limit=1`,
+      );
+      if (rows[0]?.scan) return JSON.stringify(rows[0].scan);
+    } catch (error) {
+      console.error(`readScan ${id}: Supabase unavailable, using local file (${(error as Error).message})`);
+    }
+  }
   try {
     return await readFile(path.join(SCANS_DIR, `${id}.json`), "utf8");
   } catch {
@@ -119,7 +174,8 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
     costUsd += p.predictedCostUsd ?? p.healthcareUsd ?? 0;
     if (p.source === "osm") osmMatched += 1;
   }
-  const id = `${request.countryId}-${Date.now().toString(36)}`;
+  // The random tail keeps ids unique when several computers save in the same millisecond.
+  const id = `${request.countryId}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const { south, west, north, east } = request;
   const meta: ScanMeta = {
     id,
@@ -145,5 +201,14 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
   // Data first, then meta: a listed meta always points at a complete scan.
   await writeAtomic(path.join(SCANS_DIR, `${id}.json`), JSON.stringify(collection));
   await writeAtomic(path.join(SCANS_DIR, `${id}.meta.json`), JSON.stringify(meta));
+  // Share it so every other map sees this scan. The local copy is already safe if this fails;
+  // `node scan-batch.js --sync` uploads it later.
+  if (supabaseEnabled) {
+    try {
+      await upsertScan(meta, collection);
+    } catch (error) {
+      console.error(`runAndSaveScan ${id}: Supabase upload failed (${(error as Error).message})`);
+    }
+  }
   return meta;
 }
