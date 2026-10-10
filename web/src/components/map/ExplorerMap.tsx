@@ -212,7 +212,13 @@ export default function ExplorerMap() {
     setExplain(null);
     if (trailRef.current.length < 2) {
       setSelected(null);
-      setTrail((t) => [...t, feature]);
+      // A marker and the area under it both fire on one click; add the area only once.
+      setTrail((t) =>
+        t.length >= 2 ||
+        t.some((f) => f.properties.id === feature.properties.id)
+          ? t
+          : [...t, feature],
+      );
     } else setSelected(feature.properties);
   }, []);
 
