@@ -190,8 +190,31 @@ export const solutionContent = {
       "Paved road types tagged as dirt, gravel or sand cost 1.5× more. These rates are Hestia's planning assumptions, not measured prices.",
   },
 
+  tour: {
+    eyebrow: "04 · Tour",
+    title: "One trip that reaches them all.",
+    body: [
+      {
+        text: "A separate trip to every settlement repeats the same drive again and again. So for each scan area, Hestia plans one round trip: a single team leaves the clinic, visits every settlement, and comes back.",
+      },
+      {
+        text: "It starts by always driving to the nearest village left, then keeps improving the order: any stretch of the loop that would be cheaper reversed gets reversed (a method called 2-opt). Each leg uses roads where that's cheaper, or goes straight across country where it isn't.",
+      },
+      {
+        text: "Settlements with a certainty under 30 are left out of the tour, because they are more often bare ground than homes.",
+      },
+    ] satisfies Paragraph[],
+    diagramCaption: "One team, one loop: clinic → every village → clinic",
+    diagramNote: "Illustration. The faint loop visits the nearest village each time and crosses itself; the bright one is the same villages after 2-opt. Real tours are drawn on the map.",
+    facts: [
+      { value: "1", label: "team and one round trip per scan area" },
+      { value: "30+", label: "certainty needed for a settlement to be a stop" },
+      { value: "⅓", label: "less travel, at best, than nearest-stop-first in our scans" },
+    ],
+  },
+
   price: {
-    eyebrow: "04 · Price",
+    eyebrow: "05 · Price",
     title: "Getting there is most of the bill.",
     body: [
       {
