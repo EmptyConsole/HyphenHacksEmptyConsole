@@ -1,3 +1,4 @@
 Ideas:
  - Scattered research brought together
  - Connect people to resources they need
+ - Vaccination routes for cities off the grid without healthcare
