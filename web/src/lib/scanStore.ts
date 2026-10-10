@@ -1,7 +1,7 @@
-import { spawn } from "node:child_process";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ScanMeta, ScanRequest, ScanSummary } from "@/data/types";
+import { detectVillages } from "@/lib/detector/detectVillages.mjs";
 
 /**
  * Server-only. Scans are shared through Supabase (table public.scans, one row per scan,
@@ -13,8 +13,8 @@ import type { ScanMeta, ScanRequest, ScanSummary } from "@/data/types";
  */
 
 const SCANS_DIR = path.join(process.cwd(), "data", "scans");
-const DETECTOR = path.join(process.cwd(), "..", "detect-villages.js");
-const RUN_TIMEOUT_MS = 8 * 60 * 1000;
+// A little under the route's 300 s maxDuration, so the user gets a clear message, not a cut-off.
+const RUN_TIMEOUT_MS = 280 * 1000;
 const ID_PATTERN = /^[0-9a-z-]+$/;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -137,22 +137,21 @@ export async function readScan(id: string): Promise<string | null> {
   }
 }
 
-function runDetector({ south, west, north, east }: ScanRequest): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const args = [DETECTOR, "--south", south, "--west", west, "--north", north, "--east", east].map(String);
-    const child = spawn(process.execPath, args, { cwd: path.dirname(DETECTOR) });
-    let stdout = "";
-    let stderr = "";
-    const timer = setTimeout(() => child.kill("SIGKILL"), RUN_TIMEOUT_MS);
-    child.stdout.on("data", (chunk) => (stdout += chunk));
-    child.stderr.on("data", (chunk) => (stderr += chunk));
-    child.on("error", reject);
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve(stdout);
-      else reject(new Error(stderr.trim().split("\n").pop() || `detector exited with ${code}`));
-    });
+/**
+ * Runs the detector in this process. It used to start detect-villages.js as a separate
+ * program, but a Vercel deployment only contains the web app, so the detector lives in
+ * src/lib/detector and is imported here.
+ */
+async function runDetector({ south, west, north, east }: ScanRequest) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("the scan took too long")), RUN_TIMEOUT_MS);
   });
+  try {
+    return await Promise.race([detectVillages({ south, west, north, east }), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function writeAtomic(file: string, text: string) {
@@ -160,9 +159,9 @@ async function writeAtomic(file: string, text: string) {
   await rename(`${file}.tmp`, file);
 }
 
-/** Runs detect-villages.js on the box and saves the result the same way scan-batch.js does. */
+/** Runs the detector on the box and saves the result the same way scan-batch.js does. */
 export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
-  const collection = JSON.parse(await runDetector(request)) as {
+  const collection = (await runDetector(request)) as {
     tour?: { costUsd: number; stops: number } | null;
     features: DetectedFeature[];
   };
@@ -197,18 +196,28 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
     tourCostUsd: collection.tour?.costUsd ?? null,
     tourStops: collection.tour?.stops ?? 0,
   };
-  await mkdir(SCANS_DIR, { recursive: true });
-  // Data first, then meta: a listed meta always points at a complete scan.
-  await writeAtomic(path.join(SCANS_DIR, `${id}.json`), JSON.stringify(collection));
-  await writeAtomic(path.join(SCANS_DIR, `${id}.meta.json`), JSON.stringify(meta));
-  // Share it so every other map sees this scan. The local copy is already safe if this fails;
-  // `node scan-batch.js --sync` uploads it later.
+  // Local copy. Best effort: on Vercel the app folder is read-only and Supabase is the store.
+  let savedLocally = false;
+  try {
+    await mkdir(SCANS_DIR, { recursive: true });
+    // Data first, then meta: a listed meta always points at a complete scan.
+    await writeAtomic(path.join(SCANS_DIR, `${id}.json`), JSON.stringify(collection));
+    await writeAtomic(path.join(SCANS_DIR, `${id}.meta.json`), JSON.stringify(meta));
+    savedLocally = true;
+  } catch (error) {
+    console.error(`runAndSaveScan ${id}: no local copy (${(error as Error).message})`);
+  }
+  // Share it so every other map sees this scan. With a local copy, a failed upload can be
+  // retried later with `node scan-batch.js --sync`; without one, the scan would be lost.
   if (supabaseEnabled) {
     try {
       await upsertScan(meta, collection);
     } catch (error) {
+      if (!savedLocally) throw new Error(`the scan finished but couldn't be saved (${(error as Error).message})`);
       console.error(`runAndSaveScan ${id}: Supabase upload failed (${(error as Error).message})`);
     }
+  } else if (!savedLocally) {
+    throw new Error("the scan finished but there is nowhere to save it (no Supabase keys, read-only disk)");
   }
   return meta;
 }

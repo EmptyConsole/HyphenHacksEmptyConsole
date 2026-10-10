@@ -11,7 +11,8 @@ export const metadata: Metadata = {
 function readAlgorithmSource() {
   try {
     return {
-      source: readFileSync(path.join(process.cwd(), "..", "detect-villages.js"), "utf8"),
+      // The detector's real code. detect-villages.js at the repo root is only a command-line wrapper.
+      source: readFileSync(path.join(process.cwd(), "src", "lib", "detector", "detectVillages.mjs"), "utf8"),
       error: null,
     };
   } catch {
