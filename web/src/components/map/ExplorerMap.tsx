@@ -83,6 +83,50 @@ const detected: ExpressionSpecification = [
   "detected",
 ];
 
+/**
+ * Detected settlements fade with certainty (0 → faint, 100 → solid).
+ * Hover and selection stay bright so a weak lead can still be inspected.
+ * Countries, scan boxes, and modeled villages have no certainty and keep a flat fill.
+ */
+const settlementFillOpacity: ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["get", "certainty"],
+  0,
+  0.12,
+  100,
+  0.72,
+];
+const settlementLineOpacity: ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["get", "certainty"],
+  0,
+  0.28,
+  100,
+  1,
+];
+const fillOpacity: ExpressionSpecification = [
+  "case",
+  hovered,
+  0.85,
+  isSelected,
+  0.85,
+  ["has", "certainty"],
+  settlementFillOpacity,
+  0.5,
+];
+const lineOpacity: ExpressionSpecification = [
+  "case",
+  hovered,
+  1,
+  isSelected,
+  1,
+  ["has", "certainty"],
+  settlementLineOpacity,
+  1,
+];
+
 /** Detected areas get a solid constellation outline; modeled ones a faint one. */
 function areaLineColor(theme: MapTheme): ExpressionSpecification {
   return [
@@ -300,7 +344,7 @@ export default function ExplorerMap() {
         source: "areas",
         paint: {
           "fill-color": intensityColor,
-          "fill-opacity": ["case", hovered, 0.85, isSelected, 0.85, 0.5],
+          "fill-opacity": fillOpacity,
           "fill-opacity-transition": { duration: 150 },
         },
       });
@@ -310,6 +354,7 @@ export default function ExplorerMap() {
         source: "areas",
         paint: {
           "line-color": areaLineColor("dark"),
+          "line-opacity": lineOpacity,
           "line-width": ["case", hovered, 2, detected, 1.6, 0.6],
         },
       });
