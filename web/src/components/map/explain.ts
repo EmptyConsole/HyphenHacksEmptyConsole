@@ -315,7 +315,7 @@ function villageClinic(v: AreaProperties): Explanation {
       }
     : {
         summary: `OpenStreetMap lists no health facility within range of this scan, so no route is drawn.`,
-        note: `Scans made before the search radius widened to ~${DETECTOR.clinicRangeKm} km looked only ~13 km out.`,
+        note: `Scan radius is ~${DETECTOR.clinicRangeKm} km to find health facilities.`,
       };
 }
 
