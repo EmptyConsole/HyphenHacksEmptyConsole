@@ -2,3 +2,22 @@ Ideas:
  - Scattered research brought together
  - Connect people to resources they need
  - Vaccination routes for cities off the grid without healthcare
+
+
+
+
+ Idea:
+ - Vaccination routes for cities off the grid without healthcare
+
+Problem: Healthcare workers currently cannot find many rural villages that desperatly need vaccinations.
+56% of people living in rural areas do not have access to vaccines  - International Labor Organization
+3.46 billion people live in rural areas globally - World Bank Group
+1.9 billion without vaccines
+
+Related to theme:
+We interpreted constellations as connections, and we are now creating connections between rural people and the healthcare they need. The path between stars is long, and by making constellations between them, we are making that path signficnatnly easier to cross.
+
+Why it solves:
+Currently health officers don't know where these villages are and how to get to them. We make it so there is a clear path to all the villages that satellites pick up.
+Once the officers know where the people are, budgets can finally be reworked to allow for real change.
+
