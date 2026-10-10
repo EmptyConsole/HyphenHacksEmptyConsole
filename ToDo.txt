@@ -26,3 +26,8 @@ Details of algorithm:
 2. Finds points of closest medical center to village
 3. Map easiest route of access with cost
 4. Calculate cost of country and routes needed
+
+
+
+What backend needs to give frontend:
+Polygons around map, estimated money needed per polygon, estimated population per polygon
