@@ -718,30 +718,6 @@ export default function ExplorerMap() {
 
   return (
     <div className={styles.wrap}>
-      <div className={styles.themeToggle} aria-label="Map theme selector">
-        <span className={styles.themeLabel}>Map</span>
-        <div className={styles.themeButtons}>
-          <button
-            type="button"
-            className={styles.themeButton}
-            aria-pressed={mapTheme === "dark"}
-            data-active={mapTheme === "dark" || undefined}
-            onClick={() => setMapTheme("dark")}
-          >
-            Dark
-          </button>
-          <button
-            type="button"
-            className={styles.themeButton}
-            aria-pressed={mapTheme === "light"}
-            data-active={mapTheme === "light" || undefined}
-            onClick={() => setMapTheme("light")}
-          >
-            Light
-          </button>
-        </div>
-      </div>
-
       <div ref={containerRef} className={styles.map} />
 
       <aside className={styles.panel} aria-live="polite">
@@ -878,36 +854,65 @@ export default function ExplorerMap() {
         </p>
       </aside>
 
-      {(viewTiles !== null || scan.status !== "idle") && (
-        <div className={styles.scanBox}>
-          {scan.status === "running" ? (
-            <span>Scanning… {Math.round((now - scan.startedAt) / 1000)}s</span>
-          ) : scan.status === "done" ? (
-            <>
+      <div className={styles.rightControls}>
+        {(viewTiles !== null || scan.status !== "idle") && (
+          <div className={styles.scanBox}>
+            {scan.status === "running" ? (
               <span>
-                Found {scan.scan.villages} settlements in{" "}
-                {scan.scan.countryName}.
+                Scanning… {Math.round((now - scan.startedAt) / 1000)}s
               </span>
-              <button onClick={() => openScan(scan.scan)}>View results</button>
-            </>
-          ) : scan.status === "error" ? (
-            <>
-              <span>{scan.message}</span>
-              <button onClick={() => setScan({ status: "idle" })}>
-                Dismiss
+            ) : scan.status === "done" ? (
+              <>
+                <span>
+                  Found {scan.scan.villages} settlements in{" "}
+                  {scan.scan.countryName}.
+                </span>
+                <button onClick={() => openScan(scan.scan)}>
+                  View results
+                </button>
+              </>
+            ) : scan.status === "error" ? (
+              <>
+                <span>{scan.message}</span>
+                <button onClick={() => setScan({ status: "idle" })}>
+                  Dismiss
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={scanView}
+                disabled={!canScan}
+                title={canScan ? undefined : `${viewTiles} tiles in view`}
+              >
+                {canScan ? "Scan this view" : "Zoom in to scan"}
               </button>
-            </>
-          ) : (
+            )}
+          </div>
+        )}
+
+        <div className={styles.themeToggle} aria-label="Map theme selector">
+          <div className={styles.themeButtons}>
             <button
-              onClick={scanView}
-              disabled={!canScan}
-              title={canScan ? undefined : `${viewTiles} tiles in view`}
+              type="button"
+              className={styles.themeButton}
+              aria-pressed={mapTheme === "dark"}
+              data-active={mapTheme === "dark" || undefined}
+              onClick={() => setMapTheme("dark")}
             >
-              {canScan ? "Scan this view" : "Zoom in to scan"}
+              Dark
             </button>
-          )}
+            <button
+              type="button"
+              className={styles.themeButton}
+              aria-pressed={mapTheme === "light"}
+              data-active={mapTheme === "light" || undefined}
+              onClick={() => setMapTheme("light")}
+            >
+              Light
+            </button>
+          </div>
         </div>
-      )}
+      </div>
 
       {hover && (
         <div
