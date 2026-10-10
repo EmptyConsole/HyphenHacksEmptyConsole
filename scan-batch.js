@@ -4,6 +4,7 @@
 //
 //   node scan-batch.js --hours 3
 //   node scan-batch.js --hours 3 --grid 566     # cover one country box by box (566 = Nigeria)
+//   node scan-batch.js --hours 3 --grid 566 --shard 2/4   # this computer takes share 2 of 4
 //
 // Box picking: a random point inside the country's border, then a random OSM
 // village or hamlet near that point. The box is centered on that village, so there
@@ -13,6 +14,10 @@
 // Grid mode tiles one country with boxes and scans them in a fixed shuffled order, so
 // partial coverage is spread across the country. Each scan records its grid cell, and a
 // restart skips cells already done.
+//
+// Several computers can share one grid: give each the same total and a different
+// share (--shard 1/3, 2/3, 3/3). Shares never overlap, every scan is its own pair of
+// files, and the results merge through git without conflicts.
 
 import { spawn } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -85,11 +90,20 @@ function readArgs(argv) {
   };
   const hours = Number(value("--hours") ?? 3);
   const grid = value("--grid");
-  if (!Number.isFinite(hours) || hours <= 0 || (grid !== undefined && !/^\d+$/.test(grid))) {
-    console.error("Usage: node scan-batch.js --hours 3 [--grid COUNTRY_ID]");
+  const shardMatch = /^(\d+)\/(\d+)$/.exec(value("--shard") ?? "1/1");
+  const shard = shardMatch ? { index: Number(shardMatch[1]), count: Number(shardMatch[2]) } : null;
+  if (
+    !Number.isFinite(hours) ||
+    hours <= 0 ||
+    (grid !== undefined && !/^\d+$/.test(grid)) ||
+    !shard ||
+    shard.index < 1 ||
+    shard.index > shard.count
+  ) {
+    console.error("Usage: node scan-batch.js --hours 3 [--grid COUNTRY_ID] [--shard K/N]");
     process.exit(1);
   }
-  return { hours, grid };
+  return { hours, grid, shard };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -326,7 +340,8 @@ async function scanBox(country, bbox, extra) {
       await sleep(BUSY_RETRY_MS);
       ({ collection } = await runDetectorRetrying(country, bbox));
     }
-    const id = `${country.id}-${Date.now().toString(36)}`;
+    // The random tail keeps ids unique when several computers save in the same millisecond.
+    const id = `${country.id}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const meta = {
       id,
       countryId: country.id,
@@ -391,13 +406,24 @@ function doneGridCells(countryId) {
   return done;
 }
 
-async function scanGrid(countryId, shapes, deadline) {
+// Stable share number for a string, so every computer agrees who re-runs which scan.
+function shardOfId(id, count) {
+  let hash = 0;
+  for (const ch of id) hash = (Math.imul(hash, 31) + ch.charCodeAt(0)) | 0;
+  return (Math.abs(hash) % count) + 1;
+}
+
+async function scanGrid(countryId, shapes, deadline, shard) {
   const country = COUNTRIES.find((c) => c.id === countryId) ?? { id: countryId, name: countryId };
   const geometry = shapes.get(countryId);
   if (!geometry) throw new Error(`no country with id ${countryId}`);
-  const cells = gridCells(countryId, geometry);
+  // Every computer shuffles the same way, then takes every Nth cell of that order.
+  const cells = gridCells(countryId, geometry).filter((_, i) => i % shard.count === shard.index - 1);
   const done = doneGridCells(countryId);
-  log(`${country.name}: ${cells.length} grid cells, ${done.size} already scanned`);
+  log(
+    `${country.name}: share ${shard.index}/${shard.count} has ${cells.length} grid cells, ` +
+      `${cells.filter((c) => done.has(c.id)).length} already scanned`
+  );
   let saved = 0;
   for (const cell of cells) {
     if (Date.now() > deadline) break;
@@ -409,7 +435,8 @@ async function scanGrid(countryId, shapes, deadline) {
     if (ok) saved += 1;
     await sleep(PAUSE_MS);
   }
-  log(`${country.name}: ${done.size + saved} of ${cells.length} grid cells scanned`);
+  const finished = cells.filter((c) => done.has(c.id)).length + saved;
+  log(`${country.name}: ${finished} of ${cells.length} grid cells in this share scanned`);
   return saved;
 }
 
@@ -425,13 +452,13 @@ function outdatedReason(meta, gridCountryId) {
   return null;
 }
 
-async function rescanOutdated(deadline, onlyCountryId) {
+async function rescanOutdated(deadline, onlyCountryId, shard = { index: 1, count: 1 }) {
   for (const file of readdirSync(OUT_DIR)) {
     if (!file.endsWith(".meta.json") || Date.now() > deadline) continue;
     const meta = JSON.parse(readFileSync(join(OUT_DIR, file), "utf8"));
     if (onlyCountryId && meta.countryId !== onlyCountryId) continue;
     const reason = outdatedReason(meta, onlyCountryId);
-    if (!reason) continue;
+    if (!reason || shardOfId(meta.id, shard.count) !== shard.index) continue;
     log(`${meta.countryName}: re-running ${meta.id} for ${reason}`);
     try {
       let { collection, stderr } = await runDetectorRetrying({ name: meta.countryName }, meta.bbox);
@@ -457,7 +484,7 @@ async function rescanOutdated(deadline, onlyCountryId) {
 }
 
 async function main() {
-  const { hours, grid } = readArgs(process.argv);
+  const { hours, grid, shard } = readArgs(process.argv);
   const deadline = Date.now() + hours * 3600 * 1000;
   mkdirSync(OUT_DIR, { recursive: true });
 
@@ -466,10 +493,10 @@ async function main() {
     feature(topo, topo.objects.countries).features.map((f) => [String(f.id), f.geometry])
   );
 
-  await rescanOutdated(deadline, grid);
+  await rescanOutdated(deadline, grid, shard);
 
   if (grid) {
-    const saved = await scanGrid(grid, shapes, deadline);
+    const saved = await scanGrid(grid, shapes, deadline, shard);
     log(`finished, ${saved} boxes saved`);
     return;
   }

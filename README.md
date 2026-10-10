@@ -11,19 +11,15 @@
 3. [The idea](#the-idea)
 4. [Theme: constellations as connections](#theme-constellations-as-connections)
 5. [How it works (overview)](#how-it-works-overview)
-6. [Pipeline in detail](#pipeline-in-detail)
-7. [Routing: mapped roads and the last mile](#routing-mapped-roads-and-the-last-mile)
-8. [Why routing is almost always possible](#why-routing-is-almost-always-possible)
-9. [Routing step by step](#routing-step-by-step)
-10. [Backend → frontend contract](#backend--frontend-contract)
-11. [Data sources & licenses](#data-sources--licenses)
-12. [False positives & human verification](#false-positives--human-verification)
-13. [Cost & population estimation](#cost--population-estimation)
-14. [Feedback loop: OpenStreetMap](#feedback-loop-openstreetmap)
-15. [Architecture (planned)](#architecture-planned)
-16. [References & statistics](#references--statistics)
-17. [Project status](#project-status)
-18. [License & contribution](#license--contribution)
+6. [Algorithms](#algorithms)
+7. [Backend → frontend contract](#backend--frontend-contract)
+8. [Data sources & licenses](#data-sources--licenses)
+9. [False positives & human verification](#false-positives--human-verification)
+10. [Cost & population estimation](#cost--population-estimation)
+11. [Architecture](#architecture)
+12. [References & statistics](#references--statistics)
+13. [Project status](#project-status)
+14. [License & contribution](#license--contribution)
 
 ---
 
@@ -62,13 +58,13 @@ This is not only a Nigerian problem. Globally, roughly **3.46 billion people** l
 
 Build a system that:
 
-1. **Scans** open satellite-derived **building footprint** data for **clusters of rooftops** (candidate settlements).  
-2. **Compares** those clusters with **OpenStreetMap (OSM)** places, buildings, and roads.  
-3. **Flags** settlements that **nobody has recorded** (or that are materially offset from OSM).  
-4. For each flag, **suggests a route** from the nearest clinic or team base so health workers can **reach and verify** the site.  
+1. **Scans** satellite photos for **clusters of roofs** (candidate settlements).  
+2. **Compares** those clusters with **OpenStreetMap (OSM)** places.  
+3. **Flags** settlements the map has no name for.  
+4. For each flag, **prices a route** from a nearby clinic so health workers can **reach and verify** the site.  
 5. After verification, **returns confirmed settlements to OSM** so the next campaign starts from a better map.
 
-The core insight: **buildings from space** and **places on OSM** are two imperfect views of the same ground truth. Their **disagreement** is a strong signal for “here might be people planners don’t see.”
+The core insight: **roofs from space** and **places on OSM** are two imperfect views of the same ground truth. Their **disagreement** is a strong signal for “here might be people planners don’t see.”
 
 ---
 
@@ -89,243 +85,221 @@ We are creating **connections between rural people and the healthcare they need*
 ## How it works (overview)
 
 ```
-┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
-│ Building footprints │     │ Cluster → candidate │     │ Compare with OSM    │
-│ (Google / Microsoft │ ──► │ settlements (DBSCAN)  │ ──► │ places, buildings,  │
-│  or custom detection)│     │                     │     │ roads → gap flags   │
-└─────────────────────┘     └─────────────────────┘     └──────────┬──────────┘
-                                                                     │
-                    ┌────────────────────────────────────────────────┘
-                    ▼
-         ┌─────────────────────┐     ┌─────────────────────┐
-         │ Filter false        │     │ Route: OSRM /       │
-         │ positives (sheds,   │ ──► │ Valhalla + terrain  │
-         │ abandoned sites)    │     │ last-mile estimate  │
-         └─────────────────────┘     └──────────┬──────────┘
-                                                │
-                    ┌───────────────────────────┘
-                    ▼
-         ┌─────────────────────┐     ┌─────────────────────┐
-         │ Hand list to local    │     │ Confirmed places    │
-         │ health workers verify │ ──► │ written back to OSM │
-         └─────────────────────┘     └─────────────────────┘
+ satellite tiles          roof pixels           settlement outlines
+┌────────────────┐     ┌────────────────┐     ┌────────────────┐
+│ Esri imagery   │ ──► │ color + edge   │ ──► │ join nearby    │
+│ ~1.2 m / pixel │     │ rules          │     │ roofs, trace   │
+└────────────────┘     └────────────────┘     └───────┬────────┘
+                                                      │
+                      ┌───────────────────────────────┘
+                      ▼
+         ┌────────────────────┐     ┌────────────────────┐
+         │ OSM place within   │     │ people × $10       │
+         │ 150 m → certainty  │ ──► │ + $100 per stop    │
+         │ 100, else score    │     │ + cheapest trip    │
+         └────────────────────┘     └─────────┬──────────┘
+                                              │
+                      ┌───────────────────────┘
+                      ▼
+         ┌────────────────────┐     ┌────────────────────┐
+         │ cheapest clinic    │     │ one team tour:     │
+         │ trip on OSM roads  │ ──► │ clinic → villages  │
+         │                    │     │ → clinic           │
+         └────────────────────┘     └────────────────────┘
 ```
 
-You can **almost always** produce **a route** to a flagged village. What varies is how much of that route follows **real, mapped** road network versus an **estimated** walking segment off the network.
+A scan always returns a route when it can find a clinic or a road. Mapped kilometers follow OpenStreetMap. The last stretch with no road is a straight line, priced higher because a team slows down there.
 
 ---
 
-## Pipeline in detail
+## Algorithms
 
-### Step 1 — Obtain building footprints
+Detection uses color and shape. Routing uses the roads already drawn on OpenStreetMap. There is no trained model and no separate routing engine: `detect-villages.js` downloads the picture, finds the settlements, prices every trip, and prints one GeoJSON document.
 
-**Inputs (choose one or fuse several):**
+```
+node detect-villages.js --south 9.02 --west 38.70 --north 9.06 --east 38.74
+```
 
-- **[Google Open Buildings](https://sites.research.google/gr/open-buildings/)** — global footprint polygons from open imagery; dual-licensed **CC BY 4.0** or **ODbL 1.0** (pick one license for your use case).  
-- **[Microsoft Global ML Building Footprints](https://github.com/microsoft/GlobalMLBuildingFootprints)** — billions of footprints from Bing Maps imagery; **CDLA Permissive 2.0**.  
-- **Custom detection** — train or run inference on open imagery (e.g. Sentinel-2, Maxar where licensed) if you need fresher or region-specific coverage.
+The only input is a bounding box. Progress lines go to stderr. The FeatureCollection on stdout is what the map saves and draws. Constants named below live at the top of that file.
 
-**Output:** A geospatial layer of polygon or point building geometries for the region of interest (e.g. a state, LGA, or custom AOI).
+The map then does two more things with those results. Countries that have been scanned show the polygons. Every country, scanned or not, gets a national cost from rural population and the dollars-per-person the scans observed.
 
-**Notes:**
+### 1. Get the satellite picture
 
-- Footprints are **imperfect** (merged buildings, missed huts, industrial roofs). The pipeline treats them as **evidence**, not ground truth.  
-- Align all layers to a common CRS (typically **EPSG:4326** for storage, local UTM for distance/clustering).
+The box is turned into Web Mercator tiles at zoom 17, about **1.2 meters per pixel**, from [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9). Each tile is a 256×256 JPEG. Up to six tiles download at once. A box that would need more than **400 tiles** is refused.
 
----
+Tiles cover a rectangle slightly larger than the request. After classification, every pixel outside the box is cleared, so a village just past the edge is ignored.
 
-### Step 2 — Cluster buildings into candidate settlements
+A batch scan (`scan-batch.js`) uses a square of **0.04° × 0.04°**, about 4 km on a side near the equator.
 
-**Goal:** Turn millions of isolated footprints into **candidate hamlets/villages**.
+### 2. Keep the roofs
 
-**Typical approach:**
+Each pixel is accepted or dropped with fixed color rules. Vegetation, water, and darkness are dropped first:
 
-- Convert footprints to **centroids** or **weighted points** (weight = footprint area).  
-- Cluster in projected coordinates using **DBSCAN** (or HDBSCAN):
-  - **`eps`**: maximum distance between buildings in the same settlement (tune per context—dense savanna vs sparse Sahel).  
-  - **`min_samples`**: minimum buildings to form a cluster (filters lone farm structures early).
+| Reject | Rule |
+|--------|------|
+| Vegetation | Green is stronger than red and blue |
+| Water | Dark and blue. Bright blue metal roofs are kept later |
+| Dark | Average brightness under 40 (shadow, dense forest, dark soil) |
 
-**Output per cluster:**
+A pixel that survives is a **roof** when it looks like red tile, pale concrete, blue corrugated metal, or flat gray that also has a hard edge. Gray without an edge is asphalt, so a road is not counted as a house by itself.
 
-- Centroid or concave hull polygon  
-- Building count, total footprint area, density  
-- Optional: confidence score from cluster cohesion
+The same pass writes two masks:
 
-**Parameter tuning:** Urban periphery and rural Nigeria may need **different** `eps` / `min_samples`. Document defaults per biome and allow overrides per deployment.
+- **roof** — roof-colored pixels, used later to count buildings
+- **built** — those pixels, plus any pixel whose brightness differs from a neighbor by 28 or more (walls and roof edges)
 
----
+### 3. Join roofs into a village
 
-### Step 3 — Compare with OpenStreetMap and flag gaps
+Scattered built pixels become one blob per settlement with two morphological passes, each a square window:
 
-**OSM layers to load** (via Overpass, Geofabrik extract, or planet subset):
+1. **Open** (erode, then dilate) with a 1-pixel radius. Single-pixel speckle disappears.
+2. **Close** (dilate, then erode) with a 12-pixel radius. Gaps of about **30 meters** between roofs fill in. The outer footprint does not grow, because the dilate is undone by the erode.
 
-- `place=*` (hamlet, village, town, isolated_dwelling, etc.)  
-- `building=*`  
-- `highway=*` (for proximity and routing context)
+Connected components are then traced with 4-connectivity (up, down, left, right). A blob is kept only when it covers at least **400 pixels** (about 500 m²). Smaller blobs are a shed or noise.
 
-**For each candidate cluster, compute:**
+The outline is the largest loop of pixel edges around the blob. Courtyards and holes are the smaller loops and are dropped. Stair-steps along a straight wall are removed with Ramer–Douglas–Peucker at a tolerance of **2 pixels**. The ring is converted back to longitude and latitude and wound counter-clockwise for GeoJSON.
 
-| Check | Purpose |
-|-------|---------|
-| Nearest OSM `place` within radius *R* | If none, **strong unmapped flag** |
-| Nearest OSM building | Detect mapped structures without place tags |
-| Distance / offset if a place exists nearby | **Positional mismatch** (satellite cluster vs OSM node) |
-| Road proximity | Context for routing; not always required for flagging |
+Roof pixels were stored before the close, so a gap between houses still splits them. Each connected group of at least **8 roof pixels** counts as one building. A blob with no building at all is dropped.
 
-**Flag types (example taxonomy):**
+### 4. Ask if the map already knows it
 
-- **`UNMAPPED`** — no place tag within *R*  
-- **`OFFSET`** — place exists but centroid &gt; *d* meters from cluster  
-- **`PARTIAL`** — buildings on OSM but no settlement place  
-- **`CONFIRMED`** — matches after field visit (downstream)
+OpenStreetMap places inside the box are loaded through the Overpass API: `village`, `hamlet`, `isolated_dwelling`, `town`, and `suburb`.
 
-Store provenance: building source, OSM changeset date, algorithm version.
+For each outline, the closest of those places is measured. Distance is zero when the place sits inside the ring, otherwise it is the distance to the boundary. A place within **150 meters** confirms the settlement:
 
----
+- **Certainty 100**, source `osm`, and the place's name and id are stored.
+- Anything farther away is left to the satellite score.
 
-### Step 4 — Filter false positives
+Satellite certainty is a weighted score, **capped at 99**. Only a mapped place can be 100.
 
-Not every rooftop cluster is a village needing vaccines.
+| Part | Weight | Full marks |
+|------|--------|------------|
+| Roof clusters | 45 | 8 or more buildings |
+| Compact shape | 30 | compactness 0.45 (a circle is 1) |
+| Roof-colored area | 25 | 35% of the outline is roof-colored |
 
-**Common false positives:**
+Compactness is \(4\pi A / P^2\). A round village scores high. A long field edge or a road scores near zero.
 
-- **Farm sheds and granaries** — small, linear along fields  
-- **Abandoned or seasonal sites** — low building count, no path wear in imagery  
-- **Industrial / commercial** — large single footprints, non-residential land cover  
-- **Mining or construction camps** — atypical spatial pattern
+A certainty under 100 is a lead. Color rules can still mistake rocks, bare fields, or farm sheds for roofs.
 
-**Filters (combine heuristics + optional ML):**
+### 5. Count people and the vaccine cost
 
-- Minimum building count and **residential-like** footprint size distribution  
-- **Land cover** (ESA WorldCover, MODIS): exclude predominant water, bare rock, industrial  
-- **Distance to known agricultural patterns** (optional)  
-- **Temporal consistency** (Open Buildings Temporal) — persistent clusters vs ephemeral
+Population is the larger of two estimates, and never below one dwelling:
 
-**Human-in-the-loop:** Filters reduce noise; **field verification remains authoritative**.
+\[
+\text{people} = \max(5 \times \text{buildings},\; 5 \times \mathrm{round}(\text{area} / 250\,\mathrm{m}^2),\; 5)
+\]
 
----
+Five people stand in for one roof. When adjoining roofs fused into one cluster, area is used instead: one dwelling per **250 m²**, still five people each.
 
-### Step 5 — Routing to each flagged settlement
+Vaccinating that settlement is:
 
-See [Routing: mapped roads and the last mile](#routing-mapped-roads-and-the-last-mile) and [Routing step by step](#routing-step-by-step).
+\[
+\text{healthcare} = \text{people} \times \$10 + \$100
+\]
 
-**Engines:** [OSRM](http://project-osrm.org/), [Valhalla](https://valhalla.github.io/valhalla/), or GraphHopper on OSM road graphs from [Geofabrik](https://download.geofabrik.de/) extracts.
+The $10 is vaccine, syringe, and a share of the health worker's time, spread over everyone in the settlement. The $100 is the stop itself: cooler, records, and setup, paid once even for a tiny place.
 
-**Profiles:** `car`, `motorcycle`, or `foot` depending on how teams actually travel.
+### 6. Price the trip from a clinic
 
-**Output:** GeoJSON (or equivalent) with **two segments** when needed:
+Clinics are hospitals, clinics, doctors, and health posts in OpenStreetMap, searched about **40 km** past the box (`amenity` or `healthcare` tags). A building outline and an entrance node within 40 meters are treated as the same facility.
 
-1. **Mapped network** — snap to nearest road, route to closest approach point  
-2. **Estimated off-network** — least-cost path from road end to village centroid
+Each settlement tries its **three nearest** clinics. The road download is limited to the box around those clinics. Drivable ways are loaded, including tracks. Footpaths are left out.
 
-Label each segment with `source: "osm_routed" | "terrain_estimated"` and attach **distance**, **duration**, and **uncertainty** metadata.
+**Road graph.** Each OSM way becomes directed edges. Intersections share node ids, so ways join there. One-way tags are honored. Each edge stores length in meters and a dollar cost:
 
----
+| Road | USD / km |
+|------|----------|
+| Motorway | 1.2 |
+| Trunk | 1.3 |
+| Primary | 1.4 |
+| Secondary | 1.6 |
+| Tertiary | 1.8 |
+| Residential | 2.0 |
+| Unclassified, living street | 2.2 |
+| Service | 2.4 |
+| Track | 4.5 |
+| No road | 8.0 |
 
-### Step 6 — Field verification and OSM write-back
+A paved type tagged dirt, gravel, sand, mud, or similar costs **1.5×** more. Tracks and unpaved surfaces are marked slow. These rates are planning assumptions.
 
-1. Export prioritized list (map + offline pack if needed).  
-2. Health workers visit; confirm population, name, accessibility.  
-3. For confirmed sites, create or fix OSM entities (`place=hamlet`, `place=village`, buildings, tracks).  
-4. Mark internal records **`VERIFIED`** and link to OSM id.
+**Snap.** The clinic and the settlement centroid are each joined to the nearest point on a road segment. A road farther than **8 km** is not a usable approach. The snap splits that segment so the search can start and stop mid-edge.
 
-This closes the loop: the next gap-analysis run should **not** re-flag verified settlements.
+**Search.** One Dijkstra run starts from every snapped clinic at once. Edge weight is dollars, so the first time a village's road node is settled, that path is the cheapest way to reach it. The trip cost is road dollars plus the two off-road gaps (clinic to its road, and road to the village) at **$8 / km**.
 
----
+A straight line from clinic to village, priced entirely at $8 / km, is always computed too. The cheaper of the road trip and the straight line wins. When no clinic is inside the search pad, the whole 40 km is priced as off-road.
 
-## Routing: mapped roads and the last mile
+**Difficulty** is a score from 0 to 100:
 
-| Segment | Data source | Trust level |
-|---------|-------------|-------------|
-| Clinic → along mapped roads | OSM + OSRM/Valhalla | High where OSM completeness is good |
-| Road end → village centroid | Terrain / land-cover cost grid | Medium—estimate, not survey |
-| Total time/distance | Sum of segments + mode assumptions | Disclose assumptions in UI |
+| Part | Points | Full marks |
+|------|--------|------------|
+| Off-road gap at the village | 50 | 1 km or more off the road |
+| Whole trip length | 30 | 30 km |
+| Share that is slow | 20 | the entire trip is track, unpaved, or off-road |
 
-**UI requirement:** Show mapped and estimated portions **differently** (color, linestyle, legend). Never present an estimated foot path as surveyed road.
+0–33 is easy, 34–66 is moderate, 67–100 is hard.
 
----
+Predicted cost for the settlement is healthcare plus this trip.
 
-## Why routing is almost always possible
+### 7. Recommend the cheapest place
 
-Routing needs:
+Every polygon keeps its own route, clinic, and predicted cost, so the map can draw all of them. The recommendation is the polygon whose predicted cost is lowest. Ties break toward the easier trip, then toward the larger population.
 
-1. A **network** of roads and paths  
-2. A **start** (clinic, depot, team base) and **end** (flagged village)
+### 8. Plan one team tour
 
-You already have the **end** from clustering. The **network** comes from OSM. Even where mapping is sparse, OSM often contains **main roads and many tracks**—mappers have traced substantial coverage across much of Nigeria and many other regions from satellite imagery.
+A separate clinic trip to every settlement double-counts the drive out and back. The tour sends **one team** out from a depot, through every settlement worth visiting, and back.
 
-A village with **no road mapped to its doorstep** still sits **near** some road feature in most cases. The engine routes to the **nearest point on the network**, then the system handles the **gap** explicitly.
+Settlements under certainty **30** are skipped. They are often bare ground. The depot is the clinic that most of the remaining settlements already route from. If no clinic is in range, the depot is the settlement closest to a road.
 
----
+Each leg costs the cheaper of driving (road dollars plus both off-road snaps) or a straight off-road line. Rural roads are almost all two-way, so each pair of stops uses the cheaper direction.
 
-## Routing step by step
+The visiting order starts as nearest-neighbor from the depot, then **2-opt** rewrites it: any stretch of the loop is reversed when that cuts the total cost. That repeats for up to 50 passes, and usually settles in a few. The map also shows what separate round trips would have cost (twice each settlement's one-way trip) so the saving from one loop is visible.
 
-### 1. Pick the start point
+### 9. Roll scans up to a country
 
-Use the **nearest health facility** from:
+Saved scans live in `web/data/scans/`. On the map, a scanned country is drawn as those boxes, and each box opens into the detected polygons, clinic routes, and the team tour.
 
-- OSM (`amenity=clinic`, `amenity=hospital`, `healthcare=*`, etc.), and/or  
-- **National master facility lists** (DHIS2, MoH shapefiles) when OSM is incomplete  
+Every country also gets a national estimate, scanned or not:
 
-Alternatively use a **fixed team base** for a campaign week.
+\[
+\text{people} = \text{rural population} \times 0.56
+\]
 
-**Rule:** Document which source wins when multiple clinics are equidistant (e.g. prefer public PHC over private pharmacy).
+Rural population is the World Bank figure. Where the World Bank has none, it is the country's area times 25 rural people per km². The 0.56 is the ILO share of rural people without health coverage.
 
-### 2. Route over the mapped network
+Dollars per person come from the scans: that country's own scans when it has any, otherwise the average over every scan, otherwise **$11**. National cost is people times that rate.
 
-1. Load a regional OSM extract into the routing engine.  
-2. Select profile: **motorbike** is common for rural outreach; **foot** for last-mile-only planning.  
-3. Compute shortest or fastest path from **start** to **snap point** near the village.
+A country with no scans still has to be clickable. Its outline is split into regions, and those into villages, with a seeded Voronoi partition so the same country always splits the same way. Child populations and costs sum to the parent. Those shapes are labeled **modeled**. They are a placeholder split of the national total, and they carry no routes.
 
-### 3. Find the end of the road
+### Where the boxes come from
 
-- Snap village location (cluster centroid) to **nearest edge** on the routable graph.  
-- Record **`off_network_distance_m`**: geodesic or projected distance from snap point to true centroid.
+`scan-batch.js` runs the detector on many boxes and writes each result as soon as it finishes.
 
-### 4. Cover the gap (when off-network distance is significant)
+In the default mode it picks countries with the highest zero-dose burden first, round-robin, so a short run still covers many countries. Inside a country it draws a random point in the border, asks Overpass for a village or hamlet nearby, and centers the 0.04° box on that place. The mapped village is then something to find, and unmapped neighbors show up as satellite hits.
 
-If the village is more than a **few hundred meters** from the nearest routable edge:
+Grid mode (`--grid`) tiles one country with the same box size and walks the cells in a fixed shuffle, skipping cells already saved, so a partial run is spread across the country.
 
-1. Build a **cost grid** from terrain and land cover:  
-   - **High cost:** water, steep slopes, dense vegetation  
-   - **Low cost:** open ground, bare earth, existing visible tracks in imagery  
-2. Run **least-cost path** from road snap point to village:  
-   - Python: `skimage.graph.route_through_array`  
-   - GRASS GIS: `r.walk`  
-3. Optionally refine using **visible paths** between buildings in high-resolution imagery (manual or CV-assisted).
-
-### 5. Return the route with provenance
-
-Response should include:
-
-- Full geometry (MultiLineString with part indices)  
-- Per-part labels: `osm_routed` vs `terrain_estimated`  
-- Total distance, estimated time, routing profile  
-- Warnings: e.g. `"off_network_km > 2"`, `"no clinic within 50 km"`
+A live scan from the map runs the same detector on a box the user draws and saves it the same way.
 
 ---
 
 ## Backend → frontend contract
 
-The frontend map and planning views expect the backend to provide, **per polygon** (cluster / catchment / planning zone):
+`detect-villages.js` prints one GeoJSON `FeatureCollection`. Each feature is a settlement polygon. The collection also carries `recommendation` (the cheapest polygon and its route) and `tour` (the team loop). The map reads saved copies of that document from `web/data/scans/`.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `polygon` | GeoJSON Polygon/MultiPolygon | Boundary of cluster or aggregated planning area |
-| `estimated_population` | number | Model estimate from building count × regional multiplier (document method) |
-| `estimated_cost` | money object | Campaign cost estimate for serving this polygon (fuel, staff-days, cold chain—assumptions documented) |
-| `flag_status` | enum | e.g. `UNMAPPED`, `OFFSET`, `VERIFIED` |
-| `route` | GeoJSON Feature | LineString(s) with segment metadata |
-| `nearest_facility` | Point + properties | Id, name, distance |
-| `confidence` | 0–1 or low/med/high | Combined detection + OSM gap confidence |
+| Field | Meaning |
+|-------|---------|
+| `certainty` | 100 when an OSM place matched, otherwise the satellite score, 0–99 |
+| `source` | `osm` or `satellite` |
+| `population`, `healthcareUsd` | People, and the vaccination bill |
+| `predictedCostUsd` | Healthcare plus the trip |
+| `reachUsd`, `reachDifficulty`, `reachLabel` | Trip cost, 0–100 difficulty, and easy / moderate / hard |
+| `route` | LineString from the chosen clinic to the settlement |
+| `clinic` | Name and point of that clinic |
+| `tourStop` | Position on the team tour, when the settlement is visited |
 
-**Aggregates for country- or region-level views:**
-
-- Total estimated cost for all flagged routes needed  
-- Count of polygons by status  
-- Total estimated population in unmapped clusters  
-
-Exact JSON schema to be versioned in `api/` when implemented; this README is the **product contract**.
+Country polygons use `estimated_population` and `estimated_cost` from the national rollup in [step 9](#9-roll-scans-up-to-a-country). A scanned area is marked `detected`. A Voronoi placeholder is marked `modeled`.
 
 ---
 
@@ -333,14 +307,12 @@ Exact JSON schema to be versioned in `api/` when implemented; this README is the
 
 | Dataset | Use | License |
 |---------|-----|---------|
-| Google Open Buildings | Building footprints | **CC BY 4.0** or **ODbL 1.0** (choose one) |
-| Microsoft Global ML Building Footprints | Building footprints | **CDLA Permissive 2.0** |
-| OpenStreetMap | Places, roads, facilities | **ODbL 1.0** (share-alike for DB derivatives) |
-| Geofabrik OSM extracts | Routing graphs | ODbL (via OSM) |
-| Copernicus Sentinel-2 | Imagery / land context | Copernicus license |
-| ESA WorldCover / similar | Land cover costs | Check product license |
+| Esri World Imagery | Satellite tiles for roof detection | Esri, Vantor, Earthstar Geographics, and the GIS User Community. Check [the layer terms](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) before redistribution |
+| OpenStreetMap | Places, clinics, and roads, via the Overpass API | **ODbL 1.0** |
+| World Bank `SP.RUR.TOTL` | Rural population for country totals | World Bank terms |
+| Natural Earth (world-atlas) | Country borders on the map | Public domain |
 
-**Compliance:** Attribute Google/Microsoft/OSM per their terms. If contributing verified places to OSM, respect [ODbL](https://www.openstreetmap.org/copyright) and local mapping conventions.
+**Compliance:** Attribute Esri and OpenStreetMap per their terms. If contributing verified places to OSM, respect [ODbL](https://www.openstreetmap.org/copyright) and local mapping conventions.
 
 ---
 
@@ -352,61 +324,40 @@ Algorithmic discovery **must not** auto-publish personal or sensitive locations 
 2. **Field verification** before public OSM edits or public map tiles at high precision  
 3. **Audit log** of who verified what and when  
 
-Satellite clustering finds **candidates**; health workers find **communities**.
+Satellite outlines find **candidates**; health workers find **communities**.
 
 ---
 
 ## Cost & population estimation
 
-**Population (illustrative method—document constants per deployment):**
+The formulas and the constants they use are in [Algorithms](#algorithms), steps 5, 6, and 9. In short:
 
-\[
-\text{estimated\_population} = n_{\text{buildings}} \times \text{avg\_household\_size} \times \text{occupancy\_factor}
-\]
+- **One settlement:** five people per roof (or per 250 m² when roofs merge), then $10 a person plus $100 for the stop, plus the cheapest clinic trip.
+- **One country:** World Bank rural population × 56% without health coverage × the dollars per person observed in scans.
 
-Calibrate `avg_household_size` from DHS/MICS or national census for the region.
-
-**Cost (illustrative components):**
-
-- Travel distance × fuel / vehicle cost per km  
-- Staff time (hours × daily rate)  
-- Per-dose supplies and cold-chain allocation (optional module)  
-- Amortized planning overhead per polygon  
-
-The backend should expose **assumptions** so planners can sensitivity-test numbers.
+Hestia's $10 is spread over everyone in a settlement, so it is a planning number for a place, and it is separate from UNICEF's per-child cost of fully vaccinating a child. The road rates ($1.20–$8 per km) are assumptions, and each scan keeps the inputs (building count, area, compactness, roof share, off-road meters) so a map can show how a number was built.
 
 ---
 
-## Architecture (planned)
+## Architecture
 
 ```
-┌──────────────┐    REST/GeoJSON     ┌──────────────┐
-│   Frontend   │ ◄──────────────────► │   Backend    │
-│  Map + tables│                      │  API + jobs  │
-└──────────────┘                      └──────┬───────┘
-                                             │
-                    ┌────────────────────────┼────────────────────────┐
-                    ▼                        ▼                        ▼
-             ┌─────────────┐          ┌─────────────┐          ┌─────────────┐
-             │ PostGIS /   │          │ Routing     │          │ Object      │
-             │ spatial DB  │          │ OSRM/Valhalla│          │ storage     │
-             └─────────────┘          └─────────────┘          └─────────────┘
-                    ▲
-                    │ batch pipelines
-             ┌─────────────┐
-             │ Clustering  │
-             │ + OSM diff  │
-             └─────────────┘
+┌────────────────────┐     GeoJSON      ┌────────────────────┐
+│ detect-villages.js │ ───────────────► │ web/data/scans/    │
+│ one bounding box   │                  │ one JSON per scan  │
+└────────────────────┘                  └─────────┬──────────┘
+         ▲                                        │
+         │ spawn                                  ▼
+┌────────────────────┐                  ┌────────────────────┐
+│ scan-batch.js      │                  │ Next.js map        │
+│ or a box on the map│                  │ countries, routes, │
+│                    │                  │ tours              │
+└────────────────────┘                  └────────────────────┘
 ```
 
-**Suggested components (not yet in repo):**
-
-- `ingest/` — footprint download, clip to AOI  
-- `detect/` — DBSCAN clustering, feature extraction  
-- `osm/` — Overpass queries, gap logic  
-- `route/` — graph build, off-network LCP  
-- `api/` — polygons, routes, costs  
-- `web/` — map UI, verification workflow  
+- `detect-villages.js` — satellite tiles, settlement outlines, OSM match, clinic routes, team tour
+- `scan-batch.js` — picks rural boxes and saves each finished scan immediately
+- `web/` — the map. `web/src/app/api/scans/` runs the detector for a box drawn on the map. `hestiaProvider.ts` turns saved scans and the World Bank baseline into the layers the map draws  
 
 ---
 
@@ -425,16 +376,13 @@ The backend should expose **assumptions** so planners can sensitivity-test numbe
 
 ## Project status
 
-This repository currently contains **product specification and algorithm design** (`ToDo.txt`, this README). Implementation of ingest, clustering, routing services, and the map frontend is **in progress / planned**.
+The detector, the batch scanner, and the map are in the repo. Saved scans in `web/data/scans/` are what the map draws for countries that have been visited. Countries without scans still show the national estimate, split into modeled regions.
 
-**Near-term milestones:**
+**Still ahead:**
 
-- [ ] AOI pipeline: footprints → clusters for one Nigerian LGA  
-- [ ] OSM gap flags with export GeoJSON  
-- [ ] OSRM routing + terrain last-mile prototype  
-- [ ] API: polygons + population + cost fields  
-- [ ] Verification export for field teams  
-- [ ] OSM upload workflow for confirmed villages  
+- [ ] Hand verified lists to local health teams
+- [ ] Write confirmed settlements back to OpenStreetMap
+- [ ] Calibrate people-per-roof and the road rates against a field survey  
 
 ---
 
@@ -442,7 +390,7 @@ This repository currently contains **product specification and algorithm design*
 
 License for application code: **TBD** (choose before public release). Third-party data remains under the licenses listed in [Data sources & licenses](#data-sources--licenses).
 
-Contributions welcome once code lands: issues for false-positive patterns, regional DBSCAN defaults, and OSM tagging guidelines for verified hamlets.
+Contributions welcome: false-positive patterns in the color rules, regional defaults for the roof and cost constants, and OSM tagging guidelines for verified hamlets.
 
 ---
 

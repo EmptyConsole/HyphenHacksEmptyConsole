@@ -823,7 +823,7 @@ export default function ExplorerMap() {
             </button>
           ))}
         </div>
-        {explain?.startsWith("stat:") && explain !== "stat:detected" && (
+        {(explain === "stat:population" || explain === "stat:cost" || explain === "stat:count") && (
           <ExplainBox
             explanation={explainStat(explain.slice(5) as StatKey, panelContext)}
           />
