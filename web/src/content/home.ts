@@ -11,15 +11,15 @@ export const homeContent = {
     secondaryCta: { label: "See the algorithm", href: "/algorithm" },
   },
   map: {
-    eyebrow: "Hestia",
+    eyebrow: "The map",
     title: "Hestia Map",
-    lead: "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris. Hover a country for estimates, click to zoom into regions, then villages.",
+    lead: "We analyze real world data to deliver a comprehensive view of healthcare access. Check out our solution for more details. \n Hover a country for estimates, click to zoom into regions, then villages.",
   },
 };
 
 export const navTabs = [
   { label: "Home", href: "/" },
   { label: "Problem", href: "/problem" },
-  { label: "Impact", href: "/impact" },
+  { label: "Solution", href: "/solution" },
   { label: "Algorithm", href: "/algorithm" },
 ];
