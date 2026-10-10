@@ -1,4 +1,4 @@
-# Constellations — Design System
+# Hestia — Design System
 
 Tokens live in [`src/styles/tokens.css`](src/styles/tokens.css) (CSS) and are mirrored in
 [`src/design/tokens.ts`](src/design/tokens.ts) for canvas/WebGL code (globe + map) that can't read CSS variables.

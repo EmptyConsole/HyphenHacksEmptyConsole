@@ -1,4 +1,4 @@
-# Constellations — Unmapped Village Discovery & Vaccination Routing
+# Hestia — Unmapped Village Discovery & Vaccination Routing
 
 **Short summary:** A tool that finds rural settlements missing from official maps and census lists, then plans reachable routes from the nearest health facilities so vaccination and aid teams can reach people who would otherwise be skipped.
 
@@ -446,4 +446,4 @@ Contributions welcome once code lands: issues for false-positive patterns, regio
 
 ---
 
-**Constellations** — connecting rural settlements to the healthcare they need, one route at a time.
+**Hestia** — connecting rural settlements to the healthcare they need, one route at a time.
