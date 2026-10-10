@@ -272,6 +272,34 @@ Dollars per person come from the scans: that country's own scans when it has any
 
 A country with no scans still has to be clickable. Its outline is split into regions, and those into villages, with a seeded Voronoi partition so the same country always splits the same way. Child populations and costs sum to the parent. Those shapes are labeled **modeled**. They are a placeholder split of the national total, and they carry no routes.
 
+### 10. Draw it on the map
+
+The map has three levels: the world, one country, and one scan box. A click moves down a level, and Escape moves back up.
+
+**Color** shows cost. Inside the current level, areas are ranked by estimated cost, and each gets a rank from 0 (cheapest) to 1 (most expensive). That rank picks a color from the data ramp. Ranking keeps the colors spread out at every level, even when one country's total dwarfs the rest.
+
+**Opacity** shows certainty. A detected settlement fades as its certainty drops:
+
+| Certainty | Fill | Outline |
+|-----------|------|---------|
+| 0 | 0.12 | 0.28 |
+| 50 | 0.42 | 0.64 |
+| 100 | 0.72 | 1.0 |
+
+Values in between are linear. A hovered or selected settlement goes to 0.85 whatever its score, so a weak lead can still be inspected. Countries, scan boxes, and modeled villages have no certainty and keep a flat 0.5.
+
+**Outlines** show where a number came from. Detected areas get a solid line, and modeled ones a faint line.
+
+**Routes.** The scan view draws either the team tour or each settlement's clinic route, never both, because together they are unreadable. A clinic route that follows roads is a solid line. A two-point route is the straight off-road fallback, and it is dashed so nobody reads it as a road. Hovering or selecting a settlement highlights its own route.
+
+**Markers.** A 4 km scan is invisible from orbit, so scan boxes and small settlements also get a dot.
+
+**Antimeridian.** Countries that cross 180° (Russia, Fiji) come split at −180 and 180. Rings wider than 180° have their western half shifted past 180°, so they do not draw as a band around the globe.
+
+**Live scan.** From zoom 8, the map counts the zoom-17 tiles the current view would need, using the same tile math as the detector. When the count is 400 or fewer, the view can be scanned. The country is the one under the center of the view. The scan runs on the server and is saved like a batch scan.
+
+**Refresh.** Every 20 seconds the map re-reads the scan list. When it has changed, cached levels are dropped and the current view reloads, so a batch run fills in while the map is open.
+
 ### Where the boxes come from
 
 `scan-batch.js` runs the detector on many boxes and writes each result as soon as it finishes.
