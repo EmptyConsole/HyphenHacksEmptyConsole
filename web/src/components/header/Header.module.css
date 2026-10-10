@@ -30,7 +30,18 @@
 .tabs {
   display: flex;
   gap: var(--space-1);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
   list-style: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs > li {
+  flex-shrink: 0;
 }
 
 .tab {

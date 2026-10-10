@@ -32,12 +32,11 @@ export default function Hero() {
         </h1>
         <p className={styles.lead}>{hero.lead}</p>
         <div className={styles.ctas}>
-          <Link href={hero.primaryCta.href} className="btn btn-primary">
-            {hero.primaryCta.label}
-          </Link>
-          <Link href={hero.secondaryCta.href} className="btn btn-secondary">
-            {hero.secondaryCta.label}
-          </Link>
+          {hero.ctas.map((cta) => (
+            <Link key={cta.href} href={cta.href} className={`btn btn-${cta.variant}`}>
+              {cta.label}
+            </Link>
+          ))}
         </div>
       </div>
     </section>

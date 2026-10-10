@@ -7,8 +7,11 @@ export const homeContent = {
     headlineLines: ["Making sure", "no star", "is left behind."],
     lead:
       "In today's world, there are over 1.9 billion people living in rural areas without any healthcare.",
-    primaryCta: { label: "Explore the map", href: "#map" },
-    secondaryCta: { label: "See the algorithm", href: "/algorithm" },
+    ctas: [
+      { label: "Donate", href: "/donate", variant: "primary" },
+      { label: "Explore the map", href: "#map", variant: "secondary" },
+      { label: "See the algorithm", href: "/algorithm", variant: "secondary" },
+    ],
   },
   map: {
     eyebrow: "The map",
@@ -22,4 +25,5 @@ export const navTabs = [
   { label: "Problem", href: "/problem" },
   { label: "Solution", href: "/solution" },
   { label: "Algorithm", href: "/algorithm" },
+  { label: "Donate", href: "/donate" },
 ];

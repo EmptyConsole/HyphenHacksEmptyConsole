@@ -195,7 +195,7 @@ export default function ExplorerMap() {
           ? await dataProvider.getCountries()
           : level === 1
             ? await dataProvider.getRegions(trail[0])
-            : await dataProvider.getVillages(trail[1]);
+            : (await dataProvider.getVillages(trail[1])).areas;
       if (cancelled) return;
 
       hoverIdRef.current = null;
