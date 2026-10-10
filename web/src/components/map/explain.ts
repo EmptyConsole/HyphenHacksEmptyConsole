@@ -38,6 +38,8 @@ export interface PanelContext {
   parent: AreaProperties | null;
   collection: AreaCollection | null;
   scans: ScanMeta[];
+  /** The open scan's team tour, when it has one. */
+  tour: TourSummary | null;
 }
 
 const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
@@ -197,14 +199,15 @@ function regionStat(key: StatKey, ctx: PanelContext, p: AreaProperties): Explana
     };
   }
   if (key === "cost") {
+    if (!ctx.tour) {
+      return {
+        summary: "No team tour here: no clinic is in range, so there is no team to send.",
+      };
+    }
+    const tour = explainTour(ctx.tour);
     return {
-      summary: "Vaccinating everyone here, plus travel from the nearest clinic.",
-      rows: [
-        { label: "Vaccination", value: usd(total(villages, "healthcare_cost")) },
-        { label: "+ Travel", value: usd(total(villages, "reach_cost")) },
-        { label: "= Cost", value: usd(total(villages, "estimated_cost")) },
-      ],
-      note: `Vaccination is $${DETECTOR.usdPerPerson} per person plus $${DETECTOR.usdPerStop} per settlement visited.`,
+      ...tour,
+      note: `${tour.note} Vaccination is $${DETECTOR.usdPerPerson} per person plus $${DETECTOR.usdPerStop} per settlement visited.`,
     };
   }
   return {
@@ -339,6 +342,21 @@ function villageLocation(v: AreaProperties): Explanation {
           ]
         : undefined,
     note: "Paste the pair into any map app to find it. Routes and the team tour arrive at this point.",
+  };
+}
+
+/** Where a scan box sits. */
+export function explainScanLocation(p: AreaProperties): Explanation {
+  return {
+    summary: "The center of this scan.",
+    rows:
+      p.lat !== undefined && p.lon !== undefined
+        ? [
+            { label: "Latitude", value: p.lat.toFixed(5) },
+            { label: "Longitude", value: p.lon.toFixed(5) },
+          ]
+        : undefined,
+    note: "Each scan covers a box about 4 × 4 km around this point. Paste the pair into any map app to find it.",
   };
 }
 

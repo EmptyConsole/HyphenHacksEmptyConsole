@@ -51,7 +51,9 @@ export interface AreaProperties {
   slow_m?: number;
   /** Position in the scan's team tour (1 = first stop). Unset when skipped or no tour. */
   tour_stop?: number;
-  /** Center of the settlement outline (average of its corners). */
+  /** Travel cost of this scan's team tour, USD. Null when the scan has no tour. */
+  tour_cost?: number | null;
+  /** Center of the settlement outline (average of its corners), or of a scan box. */
   lon?: number;
   lat?: number;
 

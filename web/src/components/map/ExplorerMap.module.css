@@ -302,6 +302,7 @@
 }
 
 .coords {
+  display: block;
   margin-top: 2px;
   font-family: var(--font-mono);
   font-size: var(--text-micro);
