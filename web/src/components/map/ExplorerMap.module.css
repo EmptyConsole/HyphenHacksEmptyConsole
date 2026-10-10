@@ -172,6 +172,10 @@
   grid-template-columns: repeat(2, 1fr);
 }
 
+.stats[data-columns="1"] {
+  grid-template-columns: 1fr;
+}
+
 /* Every number is a button that opens its own explanation. */
 .stat {
   display: flex;

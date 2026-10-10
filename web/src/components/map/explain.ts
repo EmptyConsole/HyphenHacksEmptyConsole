@@ -165,7 +165,7 @@ function countryStat(key: StatKey, ctx: PanelContext, p: AreaProperties): Explan
       summary:
         p.data_source === "detected"
           ? `${children.length} satellite scan${children.length === 1 ? "" : "s"} in ${p.name}. Each dot on the map is one.`
-          : `Placeholder regions that split ${p.name}'s estimate. No scans here yet.`,
+          : `No scans in ${p.name} yet.`,
     };
   }
   return {
@@ -187,15 +187,24 @@ function regionStat(key: StatKey, ctx: PanelContext, p: AreaProperties): Explana
       note: "Zoom in and use “Scan this view” to replace it with real detections.",
     };
   }
-  const osm = villages.filter((v) => v.detection === "osm").length;
+  const onTour = ctx.tour ? villages.filter((v) => v.tour_stop !== undefined) : villages;
+  const excluded = ctx.tour ? villages.filter((v) => v.tour_stop === undefined) : [];
+  const excludedNote =
+    ctx.tour && excluded.length
+      ? ` ${num(total(excluded, "estimated_population"))} people in ${num(excluded.length)} low-confidence settlement${excluded.length === 1 ? "" : "s"} (score under ${ctx.tour.minCertainty}) were excluded from this number.`
+      : "";
   if (key === "population") {
     return {
-      summary: "People living in the settlements found in this scan.",
+      summary: ctx.tour
+        ? "People living in the settlements the team tour visits."
+        : "People living in the settlements found in this scan. There's no team tour here, so all of them are counted.",
       rows: [
-        { label: "Settlements", value: num(villages.length) },
-        { label: "= People", value: num(total(villages, "estimated_population")) },
+        { label: ctx.tour ? "Settlements on the tour" : "Settlements", value: num(onTour.length) },
+        { label: "= People", value: num(total(onTour, "estimated_population")) },
       ],
-      note: "Each settlement's count comes from its roofs or its size. Click a settlement to see how.",
+      note:
+        "Each settlement's count comes from its roofs or its size. Click a settlement to see how." +
+        excludedNote,
     };
   }
   if (key === "cost") {
@@ -210,8 +219,12 @@ function regionStat(key: StatKey, ctx: PanelContext, p: AreaProperties): Explana
       note: `${tour.note} Vaccination is $${DETECTOR.usdPerPerson} per person plus $${DETECTOR.usdPerStop} per settlement visited.`,
     };
   }
+  const osm = onTour.filter((v) => v.detection === "osm").length;
   return {
-    summary: `Settlements found in this scan. ${osm} are on OpenStreetMap; the other ${villages.length - osm} were found only in satellite images.`,
+    summary: `${ctx.tour ? "Settlements the team tour visits" : "Settlements found in this scan"}. ${osm} are on OpenStreetMap; the other ${onTour.length - osm} were found only in satellite images.`,
+    note: ctx.tour && excluded.length
+      ? `${num(excluded.length)} low-confidence settlement${excluded.length === 1 ? "" : "s"} (score under ${ctx.tour.minCertainty}) ${excluded.length === 1 ? "was" : "were"} excluded from this number.`
+      : undefined,
   };
 }
 

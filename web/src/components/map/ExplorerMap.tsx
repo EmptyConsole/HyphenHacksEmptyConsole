@@ -73,7 +73,7 @@ maplibregl.setWorkerUrl("/vendor/maplibre-gl-worker.mjs");
 const WORLD_VIEW = { center: [18, 12] as [number, number], zoom: 1.9 };
 const EMPTY = featureCollection([]);
 const LEVEL_LABEL = ["World", "Country", "Region"] as const;
-const CHILD_LABEL = ["countries", "regions", "villages"] as const;
+const CHILD_LABEL = ["countries", "scans", "villages"] as const;
 /** Inside a scanned country the children are scans; inside a scan they are settlements. */
 const DETECTED_CHILD_LABEL = ["countries", "scans", "settlements"] as const;
 /** The scan button appears from this zoom; below it the view is far too big to scan. */
@@ -860,20 +860,25 @@ export default function ExplorerMap() {
     setTrail(region ? [country, region] : [country]);
   }, []);
 
-  const totals = useMemo(
-    () => ({
-      count: collection?.features.length ?? 0,
-      population:
-        level === 0
+  const totals = useMemo(() => {
+    // Inside a scan with a team tour, only the settlements the tour visits count.
+    const onTour =
+      level === 2 && extras?.tour && collection
+        ? collection.features.filter((f) => f.properties.tour_stop !== undefined)
+        : null;
+    return {
+      count: onTour ? onTour.length : (collection?.features.length ?? 0),
+      population: onTour
+        ? onTour.reduce((s, f) => s + (f.properties.estimated_population || 0), 0)
+        : level === 0
           ? sum(collection, "estimated_population")
           : (parentProps?.estimated_population ?? 0),
       cost:
         level === 0
           ? sum(collection, "estimated_cost")
           : (parentProps?.estimated_cost ?? 0),
-    }),
-    [collection, level, parentProps],
-  );
+    };
+  }, [collection, extras, level, parentProps]);
 
   const detectedHere =
     collection?.features[0]?.properties.data_source === "detected" && level > 0;
@@ -885,7 +890,7 @@ export default function ExplorerMap() {
       : level === 1
         ? detectedHere
           ? "Click a dot to open a scan."
-          : "Click a region to zoom in."
+          : "No scans here yet. Zoom in and use “Scan this view” to find settlements."
         : detectedHere
           ? "Click a settlement for details."
           : "Click a village for details.";
@@ -893,6 +898,8 @@ export default function ExplorerMap() {
   const showTourCost = level === 2 && detectedHere && !!extras?.tour;
   // A country's own total is a national estimate, not a route. Scans show the team tour instead.
   const hideCountryCost = level === 1;
+  // An unscanned country has nothing inside it to count.
+  const hideCount = level === 1 && !detectedHere;
   const inScan = level === 2 && parentProps?.data_source === "detected";
   const tourSummary = extras?.tour?.summary ?? null;
   const costUsd = !inScan
@@ -909,6 +916,10 @@ export default function ExplorerMap() {
           level,
           path: trail.map((f) => f.properties.name),
           parent: parentProps,
+          parentFeature:
+            trail.length && parentProps
+              ? { ...trail[trail.length - 1], properties: parentProps }
+              : null,
           collection,
           layer: extras,
           scans,
@@ -984,7 +995,10 @@ export default function ExplorerMap() {
               <ExplainBox explanation={explainScanLocation(parentProps)} />
             )}
 
-            <div className={styles.stats} data-columns={hideCountryCost ? 2 : 3}>
+            <div
+              className={styles.stats}
+              data-columns={3 - Number(hideCountryCost) - Number(hideCount)}
+            >
               {(
                 [
                   ["population", "People", formatPopulation(totals.population)],
@@ -992,7 +1006,11 @@ export default function ExplorerMap() {
                   ["count", countLabel, String(totals.count)],
                 ] as const
               )
-                .filter(([key]) => key !== "cost" || !hideCountryCost)
+                .filter(
+                  ([key]) =>
+                    (key !== "cost" || !hideCountryCost) &&
+                    (key !== "count" || !hideCount),
+                )
                 .map(([key, label, value]) => (
                 <button
                   key={key}

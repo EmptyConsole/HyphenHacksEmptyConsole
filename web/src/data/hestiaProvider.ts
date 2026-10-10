@@ -1,7 +1,7 @@
 import { area as turfArea } from "@turf/turf";
 import type { Polygon } from "geojson";
 import { baselineConfig as cfg } from "./baselineConfig";
-import { fillerChildren, fillerCountries } from "./fillerProvider";
+import { fillerCountries } from "./fillerProvider";
 import ruralPopulation from "./ruralPopulation.json";
 import type {
   AreaCollection,
@@ -22,7 +22,7 @@ import type {
  *   for every country (see baselineConfig).
  * - A country with scans: its regions are the scan boxes, and their villages are the
  *   detected polygons with routes and clinics.
- * - A country without scans: generated regions and villages that split its total.
+ * - A country without scans: no regions, just its own outline and total.
  */
 
 const rural = ruralPopulation as Record<string, { rural: number; year: number }>;
@@ -268,6 +268,7 @@ function tourLayer(t: DetectedTour, villages: DetectedVillage[]): TourLayer {
   };
 }
 
+const EMPTY_AREAS: AreaCollection = { type: "FeatureCollection", features: [] };
 const EMPTY_ROUTES: RouteCollection = { type: "FeatureCollection", features: [] };
 const EMPTY_CLINICS: ClinicCollection = { type: "FeatureCollection", features: [] };
 
@@ -297,7 +298,7 @@ export const hestiaProvider: MapDataProvider = {
   async getRegions(country) {
     await ensureScans();
     return memo(regionCache, country.properties.id, async () =>
-      scansFor(country.properties.id).length ? scanRegions(country) : fillerChildren(country),
+      scansFor(country.properties.id).length ? scanRegions(country) : EMPTY_AREAS,
     );
   },
 
@@ -307,7 +308,7 @@ export const hestiaProvider: MapDataProvider = {
     return memo(villageCache, id, async () =>
       id.startsWith(SCAN_PREFIX)
         ? scanVillages(id.slice(SCAN_PREFIX.length))
-        : { areas: fillerChildren(region), routes: EMPTY_ROUTES, clinics: EMPTY_CLINICS, tour: null },
+        : { areas: EMPTY_AREAS, routes: EMPTY_ROUTES, clinics: EMPTY_CLINICS, tour: null },
     );
   },
 
