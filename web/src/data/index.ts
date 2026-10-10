@@ -1,7 +1,7 @@
-import { fillerProvider } from "./fillerProvider";
+import { hestiaProvider } from "./hestiaProvider";
 import type { MapDataProvider } from "./types";
 
-/** Swap this for a backend-backed provider when the API is ready. */
-export const dataProvider: MapDataProvider = fillerProvider;
+/** Scans from detect-villages.js where they exist, World Bank baseline + filler elsewhere. */
+export const dataProvider: MapDataProvider = hestiaProvider;
 
 export type * from "./types";

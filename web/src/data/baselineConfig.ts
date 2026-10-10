@@ -12,6 +12,8 @@ export const baselineConfig = {
   noCoverageShare: 0.56,
   /** USD per person, used until at least one scan exists. Matches detect-villages.js ($10 + stop + travel). */
   defaultCostPerPerson: 11,
+  /** Rural people per km² for places the World Bank has no figure for (Taiwan, Kosovo, small territories). */
+  fallbackRuralPerKm2: 25,
   /** How often the map checks for new scans. */
   pollMs: 20_000,
   /** detect-villages.js refuses boxes over this many zoom-17 tiles. */

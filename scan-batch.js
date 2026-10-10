@@ -27,6 +27,8 @@ const PICK_TRIES = 6;
 // Pause between boxes so the public Overpass servers are not hammered.
 // Each box makes about four Overpass queries.
 const PAUSE_MS = 15000;
+// Wait before retrying a box that failed because Overpass was busy.
+const BUSY_RETRY_MS = 45000;
 // A box that takes longer than this is abandoned.
 const RUN_TIMEOUT_MS = 8 * 60 * 1000;
 const OVERPASS_SERVERS = [
@@ -270,7 +272,16 @@ async function scanOne(country, shapes) {
   };
   log(`${country.name}: scanning near ${village.name ?? "unnamed village"} ${JSON.stringify(bbox)}`);
   try {
-    const collection = await runDetector(bbox);
+    let collection;
+    try {
+      collection = await runDetector(bbox);
+    } catch (error) {
+      // Public Overpass servers turn requests away under load. One slower retry usually works.
+      if (!/Overpass/.test(error.message)) throw error;
+      log(`${country.name}: Overpass busy, retrying in ${BUSY_RETRY_MS / 1000}s`);
+      await sleep(BUSY_RETRY_MS);
+      collection = await runDetector(bbox);
+    }
     const id = `${country.id}-${Date.now().toString(36)}`;
     const meta = {
       id,
