@@ -1083,7 +1083,7 @@ export default function ExplorerMap() {
 
   const canScan =
     viewTiles !== null && viewTiles <= baselineConfig.maxScanTiles;
-  const showWorldScan = ready && level === 0 && scan.status === "idle" && viewTiles === null;
+  const helpScanBusy = scan.status === "seeking" || scan.status === "running";
 
   return (
     <div className={styles.wrap} data-theme={mapTheme}>
@@ -1284,8 +1284,14 @@ export default function ExplorerMap() {
         </p>
       </aside>
 
-      {showWorldScan && (
-        <button type="button" className={styles.worldScan} onClick={() => void startHelpScan()}>
+      {ready && (
+        <button
+          type="button"
+          className={styles.worldScan}
+          onClick={() => void startHelpScan()}
+          disabled={helpScanBusy}
+          aria-busy={helpScanBusy || undefined}
+        >
           <svg className={styles.worldScanMark} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
             <circle cx="8" cy="8" r="5.25" fill="none" stroke="currentColor" strokeWidth="1.4" />
             <circle cx="8" cy="8" r="1.5" fill="currentColor" />
