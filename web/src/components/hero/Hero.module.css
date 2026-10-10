@@ -6,19 +6,19 @@
   overflow: hidden;
   isolation: isolate;
   background:
-    radial-gradient(ellipse 60% 50% at 70% 50%, rgba(123, 140, 255, 0.12), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 50% 45%, rgba(123, 140, 255, 0.12), transparent 70%),
     url("/textures/night-sky.png") center / cover,
     var(--color-bg);
 }
 
-/* Globe sits right of center on desktop, centered behind the copy on mobile. */
+/* Globe centered behind the title. */
 .globe {
   position: absolute;
   z-index: -2;
   top: 0;
   bottom: 0;
-  left: 28%;
-  right: -22%;
+  left: 8%;
+  right: 8%;
 }
 
 .fade {
@@ -27,7 +27,7 @@
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(90deg, var(--color-bg) 0%, rgba(5, 7, 13, 0.85) 30%, transparent 60%),
+    radial-gradient(ellipse 70% 55% at 50% 45%, rgba(5, 7, 13, 0.55), transparent 70%),
     linear-gradient(0deg, var(--color-bg) 0%, transparent 22%);
 }
 
@@ -35,12 +35,13 @@
   padding-top: var(--nav-height);
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-6);
+  text-align: center;
 }
 
 .headline {
-  max-width: 13ch;
+  max-width: 16ch;
   font-size: var(--text-display);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);
@@ -83,7 +84,7 @@
   }
 
   .content {
-    align-self: flex-start;
+    align-self: center;
     padding-top: calc(var(--nav-height) + var(--space-16));
   }
 }
