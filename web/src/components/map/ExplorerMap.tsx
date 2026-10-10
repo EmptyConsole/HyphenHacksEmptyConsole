@@ -49,6 +49,7 @@ import {
   accessLabel,
   confidenceLabel,
   confidenceLevel,
+  explainScanLocation,
   explainStat,
   explainTour,
   explainVillage,
@@ -232,6 +233,7 @@ function markerPoints(level: number, fc: AreaCollection, scans: ScanMeta[]) {
           [(s.bbox.west + s.bbox.east) / 2, (s.bbox.south + s.bbox.north) / 2],
           {
             areaId: s.countryId,
+            scanId: s.id,
             halo: 14,
             core: 3.5,
             status: scanStatus(s),
@@ -267,6 +269,28 @@ function scanStatus(s: ScanMeta): ScanStatus {
   return s.withClinic === 0 ? "noClinic" : "reached";
 }
 
+/** Tooltip fields for a scan dot on the world view, where the dot is not its own area. */
+function propsForScan(s: ScanMeta): AreaProperties {
+  return {
+    id: `scan:${s.id}`,
+    name: s.label ?? `Scan in ${s.countryName}`,
+    level: "region",
+    estimated_population: s.population,
+    estimated_cost: s.costUsd,
+    data_source: "detected",
+    tour_cost: scanStatus(s) === "noClinic" ? null : (s.tourCostUsd ?? null),
+  };
+}
+
+/** Team-route cost for a scan. Country totals are omitted. Other areas keep their own cost. */
+function formatHoverCost(props: AreaProperties): string | null {
+  if (props.level === "country") return null;
+  if (props.level === "region" && props.data_source === "detected") {
+    return props.tour_cost == null ? "–" : formatCost(props.tour_cost);
+  }
+  return formatCost(props.estimated_cost);
+}
+
 function sum(
   fc: AreaCollection | null,
   key: "estimated_population" | "estimated_cost",
@@ -280,6 +304,7 @@ export default function ExplorerMap() {
   const collectionRef = useRef<AreaCollection | null>(null);
   const hoverIdRef = useRef<string | null>(null);
   const cameraKeyRef = useRef<string | null>(null);
+  const scansRef = useRef<ScanMeta[]>([]);
 
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -547,9 +572,25 @@ export default function ExplorerMap() {
       map.on("mousemove", "areas-fill", (e) =>
         hoverArea(e, e.features?.[0]?.id),
       );
-      map.on("mousemove", "dots-hit", (e) =>
-        hoverArea(e, e.features?.[0]?.properties.areaId),
-      );
+      map.on("mousemove", "dots-hit", (e) => {
+        const raw = e.features?.[0]?.properties;
+        const scanId = raw?.scanId ? String(raw.scanId) : "";
+        if (scanId) {
+          const scan = scansRef.current.find((s) => s.id === scanId);
+          if (!scan) return;
+          map.getCanvas().style.cursor = "pointer";
+          setHoverState(null);
+          setHover({
+            x: e.point.x,
+            y: e.point.y,
+            ...flipAt(e),
+            kind: "area",
+            props: propsForScan(scan),
+          });
+          return;
+        }
+        hoverArea(e, raw?.areaId);
+      });
       map.on("mousemove", "clinics-core", (e) => {
         const name = e.features?.[0]?.properties.name;
         map.getCanvas().style.cursor = "default";
@@ -653,6 +694,7 @@ export default function ExplorerMap() {
       if (cancelled) return;
 
       const currentScans = dataProvider.getScans();
+      scansRef.current = currentScans;
       hoverIdRef.current = null;
       collectionRef.current = fc;
       setCollection(fc);
@@ -843,12 +885,22 @@ export default function ExplorerMap() {
           : "Click a village for details.";
 
   const showTourCost = level === 2 && detectedHere && !!extras?.tour;
+  // A country's own total is a national estimate, not a route. Scans show the team tour instead.
+  const hideCountryCost = level === 1;
+  const inScan = level === 2 && parentProps?.data_source === "detected";
+  const tourSummary = extras?.tour?.summary ?? null;
+  const costLabel = !inScan
+    ? formatCost(totals.cost)
+    : tourSummary
+      ? formatCost(tourSummary.costUsd + tourSummary.vaccinationUsd)
+      : "–";
 
   const panelContext: PanelContext = {
     level,
     parent: parentProps,
     collection,
     scans,
+    tour: tourSummary,
   };
 
   const canScan =
@@ -895,19 +947,30 @@ export default function ExplorerMap() {
               <h3 className={styles.title}>
                 {parentProps?.name ?? "All countries"}
               </h3>
+              {level === 2 && parentProps?.lat !== undefined && parentProps.lon !== undefined && (
+                <button
+                  className={styles.coords}
+                  aria-expanded={explain === "stat:location"}
+                  onClick={() => toggleExplain("stat:location")}
+                >
+                  {formatLatLon(parentProps.lat, parentProps.lon)}
+                </button>
+              )}
               {parentProps && <SourceBadge props={parentProps} />}
             </div>
+            {explain === "stat:location" && parentProps && (
+              <ExplainBox explanation={explainScanLocation(parentProps)} />
+            )}
 
-            <div className={styles.stats} data-columns={showTourCost ? 2 : 3}>
+            <div className={styles.stats} data-columns={hideCountryCost ? 2 : 3}>
               {(
                 [
                   ["population", "People", formatPopulation(totals.population)],
-                  ["cost", "Cost", formatCost(totals.cost)],
+                  ["cost", "Cost", costLabel],
                   ["count", detectedHere ? DETECTED_CHILD_LABEL[level] : CHILD_LABEL[level], String(totals.count)],
                 ] as const
               )
-                // The team tour line already gives the cost here, so don't repeat it.
-                .filter(([key]) => !(showTourCost && key === "cost"))
+                .filter(([key]) => key !== "cost" || !hideCountryCost)
                 .map(([key, label, value]) => (
                 <button
                   key={key}
@@ -1110,10 +1173,12 @@ export default function ExplorerMap() {
                   <dt>Population</dt>
                   <dd>{formatPopulation(hover.props.estimated_population)}</dd>
                 </div>
-                <div>
-                  <dt>Cost</dt>
-                  <dd>{formatCost(hover.props.estimated_cost)}</dd>
-                </div>
+                {formatHoverCost(hover.props) !== null && (
+                  <div>
+                    <dt>Cost</dt>
+                    <dd>{formatHoverCost(hover.props)}</dd>
+                  </div>
+                )}
               </dl>
               {hover.props.certainty !== undefined && (
                 <VillageSummary props={hover.props} />
@@ -1177,12 +1242,14 @@ function SettlementCard({
     rows.push(
       ["certainty", "Confidence", confidenceLabel(props)],
       ["reach", "Access", accessLabel(props)],
-      [
+    );
+    if (tour) {
+      rows.push([
         "tour",
         "Tour stop",
-        !tour ? "–" : props.tour_stop !== undefined ? `${props.tour_stop} of ${tour.stops}` : "Not on tour",
-      ],
-    );
+        props.tour_stop !== undefined ? `${props.tour_stop} of ${tour.stops}` : "Not on tour",
+      ]);
+    }
   }
   const explainRow = (key: VillageKey) =>
     open === `village:${key}` && <ExplainBox explanation={explainVillage(key, props, tour)} />;

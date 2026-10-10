@@ -148,6 +148,10 @@ function scanRegions(country: AreaFeature): AreaCollection {
         estimated_population: s.population,
         estimated_cost: s.costUsd,
         data_source: "detected",
+        tour_cost: s.withClinic === 0 ? null : (s.tourCostUsd ?? null),
+        // Center of the scan box.
+        lat: (s.bbox.south + s.bbox.north) / 2,
+        lon: (s.bbox.west + s.bbox.east) / 2,
       },
     })),
   };
@@ -162,6 +166,10 @@ async function scanVillages(scanId: string): Promise<VillageLayer> {
   const routes: RouteCollection = { type: "FeatureCollection", features: [] };
   const clinics: ClinicCollection = { type: "FeatureCollection", features: [] };
   const clinicIds = new Set<string>();
+  // Same rule as the yellow map dot: with no clinic in range there is no team to send.
+  const tour = detected.features.some((v) => v.properties.buildings !== 0 && v.properties.clinic)
+    ? (detected.tour ?? null)
+    : null;
   let unnamed = 0;
 
   detected.features.forEach((v, i) => {
@@ -195,7 +203,7 @@ async function scanVillages(scanId: string): Promise<VillageLayer> {
         travel_m: p.travelMeters,
         offroad_m: p.offroadMeters,
         slow_m: p.slowMeters,
-        tour_stop: p.tourStop,
+        tour_stop: tour ? p.tourStop : undefined,
         lon,
         lat,
       },
@@ -218,7 +226,7 @@ async function scanVillages(scanId: string): Promise<VillageLayer> {
       });
     }
   });
-  return { areas, routes, clinics, tour: detected.tour ? tourLayer(detected.tour, detected.features) : null };
+  return { areas, routes, clinics, tour: tour ? tourLayer(tour, detected.features) : null };
 }
 
 /** Average of the ring's corners, the same point detect-villages.js routes to. */
