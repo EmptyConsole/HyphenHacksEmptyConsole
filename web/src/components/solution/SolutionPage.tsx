@@ -31,13 +31,11 @@ function Section({
   eyebrow,
   title,
   body,
-  scan,
   children,
 }: {
   eyebrow: string;
   title: string;
   body: { text: string; cite?: SourceId[] }[];
-  scan: string;
   children: ReactNode;
 }) {
   return (
@@ -54,9 +52,6 @@ function Section({
           ))}
         </header>
         <div className={styles.visuals}>{children}</div>
-      </div>
-      <div className="container">
-        <HelpScanPrompt message={scan} />
       </div>
     </section>
   );

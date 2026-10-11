@@ -136,9 +136,6 @@ export default function AlgorithmView({ source, error = null }: AlgorithmViewPro
             );
           })}
         </ol>
-        <div className={styles.scanRow}>
-          <HelpScanPrompt message={algorithmContent.scanSteps} />
-        </div>
       </div>
 
       <section id="algorithm-source" className={`container ${styles.source}`}>

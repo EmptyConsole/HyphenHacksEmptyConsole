@@ -24,14 +24,12 @@ function Section({
   title,
   body,
   source,
-  scan,
   children,
 }: {
   eyebrow: string;
   title: string;
   body: string[];
   source: SourceId;
-  scan: string;
   children: ReactNode;
 }) {
   return (
@@ -48,9 +46,6 @@ function Section({
           ))}
         </header>
         <div className={styles.visuals}>{children}</div>
-      </div>
-      <div className="container">
-        <HelpScanPrompt message={scan} />
       </div>
     </section>
   );
