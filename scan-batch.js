@@ -278,10 +278,10 @@ function saveScan(meta, collection, metaPath = join(OUT_DIR, `${meta.id}.meta.js
 
 // Shared copy in Supabase, so other computers' maps see it. A failure here never
 // loses the scan: the local files are already written, and --sync can upload later.
-async function shareScan(meta, collection) {
+async function shareScan(meta, collection, options) {
   if (!supabaseEnabled) return;
   try {
-    const result = await upsertScan(meta, collection);
+    const result = await upsertScan(meta, collection, options);
     log(`  supabase: ${result} ${meta.id}`);
   } catch (error) {
     log(`  supabase: upload of ${meta.id} failed (${error.message}); run --sync later`);
@@ -415,7 +415,7 @@ async function scanBox(country, bbox, extra) {
     };
     saveScan(meta, collection);
     log(`${country.name}: saved ${id} (${meta.villages} villages, ${meta.population} people)`);
-    await shareScan(meta, collection);
+    await shareScan(meta, collection, { isNew: true });
     return true;
   } catch (error) {
     log(`${country.name}: scan failed: ${error.message}`);
