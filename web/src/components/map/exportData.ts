@@ -36,6 +36,13 @@ const LEAD_COLUMNS = [
   "estimated_cost",
 ] as const;
 
+const SINGULAR: Record<string, string> = {
+  countries: "country",
+  scans: "scan",
+  settlements: "settlement",
+  villages: "village",
+};
+
 function scansInView({ level, parent, scans }: ExportView) {
   if (level === 0) return scans;
   if (!parent) return [];
@@ -105,7 +112,8 @@ export function describeExport(view: ExportView): string {
   }
   if (exportsParent(view)) return "Outline and estimate, no scans yet";
   const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
-  const parts = [`${areas.length} ${view.summary.countLabel}`];
+  const label = view.summary.countLabel;
+  const parts = [areas.length === 1 ? count(1, SINGULAR[label] ?? label) : `${areas.length} ${label}`];
   const scans = view.level < 2 ? scansInView(view).length : 0;
   if (scans && view.summary.countLabel !== "scans") parts.push(count(scans, "scan"));
   if (routes.length) parts.push(count(routes.length, "route"));

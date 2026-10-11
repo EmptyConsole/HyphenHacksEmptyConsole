@@ -11,8 +11,8 @@ import { detectVillages } from "@/lib/detector/detectVillages.mjs";
  *
  * Reading a scan id out of `json` makes Postgres parse every row's whole document, which is
  * slow and swamps a small database. So supabase-index.json maps row uuid → scan id, and only
- * rows missing from it are ever opened. Supabase is checked at most once a minute, and the
- * map never waits on it for more than a few seconds.
+ * rows missing from it are ever opened. Supabase is checked in the background at most once
+ * a minute and the list never waits for it: new rows show up on the map's next refresh.
  *
  * Keys come from web/.env.local (git-ignored): SUPABASE_URL and SUPABASE_SECRET_KEY.
  */
@@ -24,8 +24,6 @@ const RUN_TIMEOUT_MS = 280 * 1000;
 const ID_PATTERN = /^[0-9a-z-]+$/;
 /** How often the scan list asks Supabase for new rows. */
 const REMOTE_REFRESH_MS = 60 * 1000;
-/** How long a scan-list request waits for that check before answering with what it has. */
-const REMOTE_WAIT_MS = 4 * 1000;
 /** Rows whose summary is read per request when catching up on new rows. */
 const META_BATCH = 10;
 
@@ -98,7 +96,7 @@ async function refreshRemote(localIds: Set<string>) {
   lastRefresh = Date.now();
 }
 
-/** Remote summaries, refreshed at most once a minute, waiting a few seconds at most. */
+/** Remote summaries known so far. Starts a background check at most once a minute; never waits. */
 async function remoteScans(localIds: Set<string>): Promise<ScanMeta[]> {
   if (!supabaseEnabled) return [];
   if (!refreshing && Date.now() - lastRefresh > REMOTE_REFRESH_MS) {
@@ -111,7 +109,6 @@ async function remoteScans(localIds: Set<string>): Promise<ScanMeta[]> {
         refreshing = null;
       });
   }
-  if (refreshing) await Promise.race([refreshing, new Promise((r) => setTimeout(r, REMOTE_WAIT_MS))]);
   return [...remote.values()].filter((r) => !localIds.has(r.meta.id)).map((r) => r.meta);
 }
 
