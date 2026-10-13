@@ -26,7 +26,7 @@
 // files, and the results merge through git without conflicts.
 
 import { spawn } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { feature } from "topojson-client";
@@ -44,9 +44,9 @@ const HALF_DEG = 0.02;
 const SEARCH_HALF_DEG = 0.4;
 // Tries to find a village before a country's box is skipped for this round.
 const PICK_TRIES = 6;
-// Pause between boxes so the public Overpass servers are not hammered.
-// Each box makes about four Overpass queries.
-const PAUSE_MS = 15000;
+// Pause between boxes so the public Overpass servers are not hammered (each box makes
+// several queries). With local map data from prepare-osm.js there's no Overpass to spare.
+const PAUSE_MS = existsSync(join(ROOT, "osm-data")) ? 2000 : 15000;
 // Must match CLINIC_PAD_DEG in detect-villages.js (0.36° ≈ 40 km). Saved scans with a
 // smaller `clinicRangeKm` are re-run at startup so every scan uses the same clinic search.
 const CLINIC_RANGE_KM = 40;

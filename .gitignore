@@ -4,3 +4,5 @@ node_modules
 .env.*
 # Supabase admin SQL, run by hand in the dashboard; not tracked
 supabase-*.sql
+# Local OpenStreetMap extracts and tiles (prepare-osm.js); large, rebuilt per computer
+osm-data/

@@ -104,8 +104,11 @@ Countries without scans are split into placeholder regions on the map, labeled "
 
 ```bash
 npm install                   # repo root: detector + batch scanner
+node prepare-osm.js           # once per computer: local Nigeria map data (needs osmium-tool)
 cd web && npm install && npm run dev   # the map, at http://localhost:3000
 ```
+
+`prepare-osm.js` downloads Nigeria's OpenStreetMap file from Geofabrik (~700 MB) and uses [osmium](https://osmcode.org/osmium-tool/) (`brew install osmium-tool`) to save its places, health facilities and roads to `osm-data/` (~240 MB, git-ignored). Scans inside it read that data instead of asking the public Overpass servers, which are often busy: a scan takes seconds instead of minutes. Outside it, and on Vercel, scans fall back to Overpass. Re-run it now and then for fresher data.
 
 `scan-batch.js` runs the detector on many boxes and saves each one to `web/data/scans/` as soon as it finishes. The map picks up new scans within 20 seconds.
 
@@ -117,7 +120,7 @@ cd web && npm install && npm run dev   # the map, at http://localhost:3000
 | `node scan-batch.js --rescan <id>` | Re-run one saved scan by its id |
 | `node scan-batch.js --hours 2` | Sample high zero-dose countries, boxes centered on random OSM villages |
 
-Several computers can scan at once. Each saved scan is its own pair of files, so results merge through git without conflicts. Use separate networks: Overpass limits requests per IP.
+Several computers can scan at once. Each saved scan is its own pair of files, so results merge through git without conflicts, and every scan is also saved to Supabase. Without local map data, use separate networks: Overpass limits requests per IP.
 
 The map also has **Scan this view**: zoom in far enough and the current view is scanned on the server and saved like any other scan.
 

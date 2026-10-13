@@ -22,6 +22,7 @@
 // The function returns GeoJSON. Progress lines go to stderr.
 
 import jpeg from "jpeg-js";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -871,6 +872,12 @@ async function fetchOverpass(query) {
 
 // Ask Overpass for settlement nodes in the bbox.
 async function fetchOsmPlaces(bbox) {
+  const local = localRegionFor(bbox);
+  if (local) {
+    return localJson(local, "places.json")
+      .filter((p) => p.lon >= bbox.west && p.lon <= bbox.east && p.lat >= bbox.south && p.lat <= bbox.north)
+      .map((p) => ({ id: p.id, name: p.name, lon: p.lon, lat: p.lat }));
+  }
   const query = `[out:json][timeout:60];
 node["place"~"^(village|hamlet|isolated_dwelling|town|suburb)$"](${bbox.south},${bbox.west},${bbox.north},${bbox.east});
 out body;`;
@@ -883,6 +890,97 @@ out body;`;
       lon: element.lon,
       lat: element.lat,
     }));
+}
+
+// --- Local OpenStreetMap data ---------------------------------------------
+// prepare-osm.js turns a Geofabrik extract into osm-data/<region>/: places, clinics and
+// road tiles. When a box is inside a prepared region, those answer instead of Overpass:
+// no rate limits, no "busy", and seconds instead of minutes. Elsewhere Overpass is used.
+
+// Run from the repo root (scan-batch.js) or from web/ (the map server).
+const OSM_DIRS = [process.env.HESTIA_OSM_DIR, join(process.cwd(), "osm-data"), join(process.cwd(), "..", "osm-data")].filter(Boolean);
+let localRegions = null;
+const localCache = new Map();
+
+function loadLocalRegions() {
+  if (localRegions) return localRegions;
+  localRegions = [];
+  for (const dir of OSM_DIRS) {
+    if (!existsSync(dir)) continue;
+    for (const name of readdirSync(dir)) {
+      const metaFile = join(dir, name, "meta.json");
+      if (!existsSync(metaFile)) continue;
+      const meta = JSON.parse(readFileSync(metaFile, "utf8"));
+      localRegions.push({ dir: join(dir, name), meta });
+      console.error(`osm data: local ${meta.region} (built ${meta.builtAt.slice(0, 10)})`);
+    }
+    if (localRegions.length) break;
+  }
+  return localRegions;
+}
+
+// The prepared region whose extract contains the center of this box, if any.
+function localRegionFor(box) {
+  const lon = (box.west + box.east) / 2;
+  const lat = (box.south + box.north) / 2;
+  return (
+    loadLocalRegions().find(
+      ({ meta: { bbox } }) => lon >= bbox.west && lon <= bbox.east && lat >= bbox.south && lat <= bbox.north,
+    ) ?? null
+  );
+}
+
+function localJson(region, file) {
+  const path = join(region.dir, file);
+  if (!localCache.has(path)) localCache.set(path, JSON.parse(readFileSync(path, "utf8")));
+  return localCache.get(path);
+}
+
+// One road tile: [[id, highway, surface, oneway, [[lon, lat], …]], …]. Missing tile: no roads.
+function localTile(path) {
+  if (!localCache.has(path)) {
+    let ways = [];
+    if (existsSync(path)) {
+      ways = gunzipSync(readFileSync(path))
+        .toString()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+    }
+    localCache.set(path, ways);
+  }
+  return localCache.get(path);
+}
+
+// Roads touching the boxes, shaped like Overpass ways. Roads that meet share the exact
+// same coordinate, so the coordinate doubles as the node id that joins them in the graph.
+function localRoads(region, boxes, mainOnly) {
+  const size = mainOnly ? region.meta.mainTile : region.meta.roadTile;
+  const folder = mainOnly ? "main" : "roads";
+  const ways = new Map();
+  for (const box of boxes) {
+    for (let x = Math.floor(box.west / size); x <= Math.floor(box.east / size); x++) {
+      for (let y = Math.floor(box.south / size); y <= Math.floor(box.north / size); y++) {
+        for (const [id, highway, surface, oneway, coords] of localTile(join(region.dir, folder, `${x}_${y}.ndjson.gz`))) {
+          if (ways.has(id)) continue;
+          if (!coords.some(([lon, lat]) => lon >= box.west && lon <= box.east && lat >= box.south && lat <= box.north)) {
+            continue;
+          }
+          const tags = { highway };
+          if (surface) tags.surface = surface;
+          if (oneway) tags.oneway = oneway;
+          ways.set(id, {
+            type: "way",
+            id,
+            nodes: coords.map(([lon, lat]) => `${lon},${lat}`),
+            geometry: coords.map(([lon, lat]) => ({ lon, lat })),
+            tags,
+          });
+        }
+      }
+    }
+  }
+  return [...ways.values()];
 }
 
 // --- Cost and route --------------------------------------------------------
@@ -950,6 +1048,13 @@ async function fetchClinics(bbox) {
 
 // Hospitals, clinics, doctors, and health posts inside one box.
 async function fetchClinicsWithin(box) {
+  const local = localRegionFor(box);
+  if (local) {
+    const found = localJson(local, "clinics.json")
+      .filter((c) => c.lon >= box.west && c.lon <= box.east && c.lat >= box.south && c.lat <= box.north)
+      .map((c) => ({ osmId: c.id, name: c.name, kind: c.kind, lon: c.lon, lat: c.lat }));
+    return mergeSameFacility(found);
+  }
   const query = `[out:json][timeout:90];
 (
   node["amenity"~"^(hospital|clinic|doctors|health_post)$"](${box.south},${box.west},${box.north},${box.east});
@@ -972,7 +1077,11 @@ out center;`;
       lat,
     });
   }
-  // A building outline and its entrance node are the same facility.
+  return mergeSameFacility(clinics);
+}
+
+// A building outline and its entrance node are the same facility.
+function mergeSameFacility(clinics) {
   const kept = [];
   for (const clinic of clinics) {
     const match = kept.find(
@@ -1032,6 +1141,10 @@ const MAIN_ROADS = "motorway|motorway_link|trunk|trunk_link|primary|primary_link
 
 // Roads of the given types inside any of the boxes, in a single Overpass request.
 async function fetchRoads(boxes, types = ALL_ROADS) {
+  const local = boxes.length ? localRegionFor(boxes[0]) : null;
+  if (local && boxes.every((box) => localRegionFor(box) === local)) {
+    return localRoads(local, boxes, types === MAIN_ROADS);
+  }
   const parts = boxes
     .map((b) => `  way["highway"~"^(${types})$"](${b.south},${b.west},${b.north},${b.east});`)
     .join("\n");
