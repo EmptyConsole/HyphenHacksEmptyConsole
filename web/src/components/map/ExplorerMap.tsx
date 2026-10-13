@@ -19,6 +19,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import {
   area as turfArea,
   bbox,
+  bboxPolygon,
   booleanPointInPolygon,
   featureCollection,
   point,
@@ -363,6 +364,9 @@ export default function ExplorerMap() {
   }, [scan]);
   const [now, setNow] = useState(() => Date.now());
   const [mapTheme, setMapTheme] = useState<MapTheme>("dark");
+  // The map is built once with the starting theme; later changes go through syncMapTheme
+  // without rebuilding it, so the setup effect reads the theme from here, not as a dependency.
+  const initialThemeRef = useRef(mapTheme);
   const [legendOpen, setLegendOpen] = useState(false);
 
   /** Which number's explanation is open, e.g. "stat:cost" or "village:reach". */
@@ -427,6 +431,28 @@ export default function ExplorerMap() {
     const record = response?.ok ? ((await response.json()) as ClinicTourRecord) : null;
     setClinicCard((card) => (card?.id === id ? { id, name, tour: record?.summary ?? null } : card));
   }, []);
+
+  const openScan = useCallback(async (result: ScanMeta) => {
+    const countries = await dataProvider.getCountries();
+    const country = countries.features.find(
+      (f) => f.properties.id === result.countryId,
+    );
+    if (!country) return;
+    const regions = await dataProvider.getRegions(country);
+    const region = regions.features.find(
+      (f) => f.properties.id === `scan:${result.id}`,
+    );
+    setSelected(null);
+    setClinicCard(null);
+    setExplain(null);
+    setScan({ status: "idle" });
+    setTrail(region ? [country, region] : [country]);
+  }, []);
+  // The map's click handler is registered once, so it reaches openScan through a ref.
+  const openScanRef = useRef(openScan);
+  useEffect(() => {
+    openScanRef.current = openScan;
+  }, [openScan]);
 
   // The map's click handlers are registered once, so they read these refs for current values.
   const clinicCardRef = useRef(clinicCard);
@@ -496,7 +522,7 @@ export default function ExplorerMap() {
   useEffect(() => {
     const map = new maplibregl.Map({
       container: containerRef.current!,
-      style: getBaseStyle(mapTheme),
+      style: getBaseStyle(initialThemeRef.current),
       center: WORLD_VIEW.center,
       zoom: WORLD_VIEW.zoom,
       minZoom: 1,
@@ -512,6 +538,8 @@ export default function ExplorerMap() {
 
     map.on("load", () => {
       map.addSource("context", { type: "geojson", data: EMPTY });
+      // Inside a scan: the boxes of the country's other scans, so you can jump between them.
+      map.addSource("other-scans", { type: "geojson", data: EMPTY });
       map.addSource("areas", { type: "geojson", data: EMPTY, promoteId: "id" });
       map.addSource("dots", { type: "geojson", data: EMPTY });
       map.addSource("routes", { type: "geojson", data: EMPTY });
@@ -543,6 +571,19 @@ export default function ExplorerMap() {
         type: "line",
         source: "context",
         paint: { "line-color": tokens.color.constellation, "line-width": 1.5 },
+      });
+      // Invisible fill so a click anywhere inside another scan's box opens it.
+      map.addLayer({
+        id: "other-scans-fill",
+        type: "fill",
+        source: "other-scans",
+        paint: { "fill-color": tokens.color.constellation, "fill-opacity": 0 },
+      });
+      map.addLayer({
+        id: "other-scans-line",
+        type: "line",
+        source: "other-scans",
+        paint: { "line-color": tokens.color.constellation, "line-width": 1.5, "line-opacity": 0.75 },
       });
       // Clinic → village routes. Off-road fallbacks are dashed so nobody mistakes them for roads.
       map.addLayer({
@@ -726,20 +767,42 @@ export default function ExplorerMap() {
       map.on("mouseleave", "dots-hit", leave);
       map.on("mouseleave", "clinics-core", leave);
       // A clinic opens its card: the one tour it runs through every scan it's nearest to.
-      map.on("click", "clinics-core", (e) => {
-        const f = e.features?.[0];
-        if (f) openClinicRef.current(String(f.properties.id), String(f.properties.name));
-      });
+      // One click handler, so only the top thing under the cursor responds: a clinic, then a
+      // marker dot, then an area, then another scan's box. Separate per-layer handlers would
+      // all fire, and a settlement under a clinic would take the click away from the clinic.
+      const clickable = ["clinics-core", "dots-hit", "areas-fill", "other-scans-fill"];
+      map.on("click", (e) => {
+        const hits = map.queryRenderedFeatures(e.point, { layers: clickable.filter((id) => map.getLayer(id)) });
+        const top = (layer: string) => hits.find((hit) => hit.layer.id === layer);
 
-      // Rendered features are tile-clipped; always drill into the full original geometry.
-      map.on("click", "areas-fill", (e) => {
-        const feature = findArea(e.features?.[0]?.id);
-        if (feature) drillInto(feature);
+        const clinic = top("clinics-core");
+        if (clinic) {
+          openClinicRef.current(String(clinic.properties.id), String(clinic.properties.name));
+          return;
+        }
+        // Rendered features are tile-clipped; always drill into the full original geometry.
+        const dot = top("dots-hit");
+        const dotArea = dot && findArea(dot.properties.areaId);
+        if (dotArea) return drillInto(dotArea);
+        const area = top("areas-fill");
+        const areaFeature = area && findArea(area.id);
+        if (areaFeature) return drillInto(areaFeature);
+        const other = top("other-scans-fill");
+        const otherScan = other && scansRef.current.find((s) => s.id === String(other.properties.scanId));
+        if (otherScan) openScanRef.current(otherScan);
       });
-      map.on("click", "dots-hit", (e) => {
-        const feature = findArea(e.features?.[0]?.properties.areaId);
-        if (feature) drillInto(feature);
+      map.on("mousemove", "other-scans-fill", (e) => {
+        // Settlements, markers and clinics keep their own hover; only bare box area shows this.
+        const above = map.queryRenderedFeatures(e.point, {
+          layers: ["clinics-core", "dots-hit", "areas-fill"].filter((id) => map.getLayer(id)),
+        });
+        if (above.length) return;
+        const scan = scansRef.current.find((s) => s.id === String(e.features?.[0]?.properties.scanId));
+        if (!scan) return;
+        map.getCanvas().style.cursor = "pointer";
+        setHover({ x: e.point.x, y: e.point.y, ...flipAt(e), kind: "area", props: propsForScan(scan) });
       });
+      map.on("mouseleave", "other-scans-fill", leave);
 
       const measureView = () => {
         if (map.getZoom() < SCAN_MIN_ZOOM) return setViewTiles(null);
@@ -837,6 +900,19 @@ export default function ExplorerMap() {
       (map.getSource("areas") as GeoJSONSource).setData(withIntensity(fc));
       (map.getSource("context") as GeoJSONSource).setData(
         parent ? featureCollection([parent]) : EMPTY,
+      );
+      const otherScans =
+        level === 2 && parent?.properties.data_source === "detected"
+          ? currentScans.filter(
+              (s) => s.countryId === trail[0].properties.id && `scan:${s.id}` !== parent.properties.id,
+            )
+          : [];
+      (map.getSource("other-scans") as GeoJSONSource).setData(
+        featureCollection(
+          otherScans.map((s) =>
+            bboxPolygon([s.bbox.west, s.bbox.south, s.bbox.east, s.bbox.north], { properties: { scanId: s.id } }),
+          ),
+        ),
       );
       (map.getSource("dots") as GeoJSONSource).setData(
         markerPoints(level, fc, currentScans),
@@ -1049,26 +1125,18 @@ export default function ExplorerMap() {
 
   useEffect(() => {
     if (!ready) return;
-    if (consumeQueuedAutoScan()) void startHelpScan();
-    return onAutoScan(() => {
+    // A scan queued before the map was ready starts on the next tick, not inside the effect,
+    // so its state updates don't cascade through this render.
+    const queued = consumeQueuedAutoScan() ? setTimeout(() => void startHelpScan(), 0) : undefined;
+    const unsubscribe = onAutoScan(() => {
       void startHelpScan();
     });
+    return () => {
+      clearTimeout(queued);
+      unsubscribe();
+    };
   }, [ready, startHelpScan]);
 
-  const openScan = useCallback(async (result: ScanMeta) => {
-    const countries = await dataProvider.getCountries();
-    const country = countries.features.find(
-      (f) => f.properties.id === result.countryId,
-    );
-    if (!country) return;
-    const regions = await dataProvider.getRegions(country);
-    const region = regions.features.find(
-      (f) => f.properties.id === `scan:${result.id}`,
-    );
-    setSelected(null);
-    setScan({ status: "idle" });
-    setTrail(region ? [country, region] : [country]);
-  }, []);
 
   useEffect(() => {
     if (scan.status !== "done" || !helpScanRef.current) return;
@@ -1299,7 +1367,8 @@ export default function ExplorerMap() {
           </>
         )}
 
-        <DownloadBox view={exportView} />
+        {/* A clinic's panel is only about the clinic; the scan's download comes back with the scan. */}
+        {!(clinicCard && !selected) && <DownloadBox view={exportView} />}
 
         <div className={styles.legendBox}>
           <button
@@ -1389,7 +1458,7 @@ export default function ExplorerMap() {
               strokeLinecap="round"
             />
           </svg>
-          Help us scan the world's rural areas
+          Help us scan the world&apos;s rural areas
         </button>
       )}
 
