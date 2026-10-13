@@ -49,16 +49,37 @@ async function supabase<T>(query: string, init: RequestInit = {}, timeoutMs = 30
 // ---- Scans that exist in Supabase but not on disk ----
 
 /** Summaries of remote scans, by scan id. */
+/** When a scan was last saved: its re-run time, or else when it was made. ISO strings compare in order. */
+const savedAt = (meta: Pick<ScanMeta, "createdAt" | "updatedAt">) => meta.updatedAt ?? meta.createdAt;
+
+/**
+ * Summaries from Supabase for scans that aren't on disk, or whose Supabase copy is newer
+ * than the one on disk (re-run on another computer, or after this copy was deployed).
+ */
 const remote = new Map<string, ScanMeta>();
+/** Last-saved time of each local scan file, so readScan knows which copy is newer. */
+const localSavedAt = new Map<string, string>();
 let lastRefresh = 0;
 let refreshing: Promise<void> | null = null;
 
-/** List scan ids (tiny), then read the summary of each one that isn't local or cached. */
-async function refreshRemote(localIds: Set<string>) {
-  const rows = await supabase<{ scan_id: string | null }[]>("scans?select=scan_id", {}, 15_000);
-  const needed = rows
-    .map((row) => row.scan_id)
-    .filter((id): id is string => !!id && ID_PATTERN.test(id) && !localIds.has(id) && !remote.has(id));
+/** Ask Supabase when each scan was last saved (tiny), then fetch summaries that are new or newer. */
+async function refreshRemote(local: Map<string, ScanMeta>) {
+  const rows = await supabase<{ scan_id: string | null; updatedAt: string | null; createdAt: string | null }[]>(
+    "scans?select=scan_id,updatedAt:meta->>updatedAt,createdAt:meta->>createdAt",
+    {},
+    15_000,
+  );
+  const needed: string[] = [];
+  for (const row of rows) {
+    const id = row.scan_id;
+    const stamp = row.updatedAt ?? row.createdAt;
+    if (!id || !stamp || !ID_PATTERN.test(id)) continue;
+    const onDisk = local.get(id);
+    if (onDisk && stamp <= savedAt(onDisk)) continue; // The local copy is as new.
+    const cached = remote.get(id);
+    if (cached && savedAt(cached) === stamp) continue; // Already have this version.
+    needed.push(id);
+  }
   for (let i = 0; i < needed.length; i += META_BATCH) {
     const batch = needed.slice(i, i + META_BATCH);
     const metas = await supabase<{ meta: ScanMeta | null }[]>(`scans?select=meta&scan_id=in.(${batch.join(",")})`);
@@ -67,11 +88,11 @@ async function refreshRemote(localIds: Set<string>) {
   lastRefresh = Date.now();
 }
 
-/** Remote summaries known so far. Starts a background check at most once a minute; never waits. */
-function remoteScans(localIds: Set<string>): ScanMeta[] {
+/** Remote summaries newer than (or missing from) disk. Checks at most once a minute; never waits. */
+function remoteScans(local: Map<string, ScanMeta>): ScanMeta[] {
   if (!supabaseEnabled) return [];
   if (!refreshing && Date.now() - lastRefresh > REMOTE_REFRESH_MS) {
-    refreshing = refreshRemote(localIds)
+    refreshing = refreshRemote(local)
       .catch((error) => {
         console.error(`Supabase check failed, showing local scans (${(error as Error).message})`);
         lastRefresh = Date.now(); // Don't retry on every request while it's down.
@@ -80,7 +101,10 @@ function remoteScans(localIds: Set<string>): ScanMeta[] {
         refreshing = null;
       });
   }
-  return [...remote.values()].filter((meta) => !localIds.has(meta.id));
+  return [...remote.values()].filter((meta) => {
+    const onDisk = local.get(meta.id);
+    return !onDisk || savedAt(meta) > savedAt(onDisk);
+  });
 }
 
 /** Insert the scan, or replace the row holding its scan id. Same as supabase-store.js. */
@@ -127,10 +151,13 @@ async function withCounts(meta: ScanMeta): Promise<ScanMeta> {
 }
 
 /** Local scan files, plus any scan in Supabase that isn't on disk. */
+/** Local scan files, with any newer or extra scans from Supabase in their place. */
 export async function listScans(): Promise<ScanMeta[]> {
-  const local = await listLocalScans();
-  const extra = remoteScans(new Set(local.map((m) => m.id)));
-  return [...local, ...extra].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const local = new Map((await listLocalScans()).map((m) => [m.id, m]));
+  for (const meta of local.values()) localSavedAt.set(meta.id, savedAt(meta));
+  const merged = new Map(local);
+  for (const meta of remoteScans(local)) merged.set(meta.id, meta);
+  return [...merged.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 async function listLocalScans(): Promise<ScanMeta[]> {
@@ -162,11 +189,22 @@ export function summarizeScans(scans: ScanMeta[]): ScanSummary {
 /** The raw detector FeatureCollection as text, or null for an unknown id. Local file first. */
 export async function readScan(id: string): Promise<string | null> {
   if (!ID_PATTERN.test(id)) return null;
+  // Supabase first when its copy is newer than the file (re-run after this copy was saved).
+  const newer = remote.get(id);
+  const local = localSavedAt.get(id);
+  if (newer && (!local || savedAt(newer) > local)) {
+    const fromSupabase = await readRemoteScan(id);
+    if (fromSupabase) return fromSupabase;
+  }
   try {
     return await readFile(path.join(SCANS_DIR, `${id}.json`), "utf8");
   } catch {
     // Not on disk: fall through to Supabase.
   }
+  return readRemoteScan(id);
+}
+
+async function readRemoteScan(id: string): Promise<string | null> {
   if (!supabaseEnabled) return null;
   try {
     const rows = await supabase<{ scan: unknown }[]>(`scans?select=scan:json->scan&scan_id=eq.${id}`);
@@ -271,9 +309,8 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
 
 /** Every scan (local and remote) whose tour starts at this clinic, with its full data. */
 async function scansForClinic(clinicId: string) {
-  const local = await listLocalScans();
-  const localIds = new Set(local.map((m) => m.id));
-  const metas = [...local, ...remoteScans(localIds)];
+  // Local and Supabase scans, each in its newest version.
+  const metas = await listScans();
   const found: { meta: ScanMeta; collection: unknown }[] = [];
   for (const meta of metas) {
     let collection: unknown = null;
