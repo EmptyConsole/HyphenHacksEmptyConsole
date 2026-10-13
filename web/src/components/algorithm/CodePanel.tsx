@@ -25,7 +25,7 @@ function downloadSource(source: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "detect-villages.js";
+  link.download = "detectVillages.mjs";
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -57,7 +57,7 @@ export default function CodePanel({ source, error, range, label, jump }: CodePan
     <div className={styles.codeBox}>
       <div className={styles.codeBar}>
         <div className={styles.codeMeta}>
-          <span className={styles.fileName}>detect-villages.js</span>
+          <span className={styles.fileName}>detectVillages.mjs</span>
           <span>{source ? `${count.toLocaleString("en-US")} lines · comments included` : "Source"}</span>
           {range && label && (
             <span className={styles.jumpLabel}>
@@ -83,7 +83,7 @@ export default function CodePanel({ source, error, range, label, jump }: CodePan
         className={styles.scroller}
         tabIndex={0}
         role="region"
-        aria-label="detect-villages.js, scroll to read"
+        aria-label="detectVillages.mjs, scroll to read"
       >
         {error && <p className={styles.codeStatus}>{error}</p>}
         {!error && !source && <p className={styles.codeStatus}>Reading the source…</p>}

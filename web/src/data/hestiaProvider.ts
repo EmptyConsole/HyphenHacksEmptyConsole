@@ -10,6 +10,7 @@ import type {
   MapDataProvider,
   RouteCollection,
   ScanMeta,
+  ClinicTourRecord,
   ScanRequest,
   TourLayer,
   VillageLayer,
@@ -44,6 +45,8 @@ interface DetectedVillage {
     predictedCostUsd?: number;
     // Saved by newer detector runs only.
     buildings?: number;
+    homes?: number | null;
+    buildingSource?: "footprints" | "pixels";
     areaM2?: number;
     compactness?: number;
     roofShare?: number;
@@ -58,7 +61,7 @@ interface DetectedVillage {
 
 /** The `tour` object detect-villages.js writes next to the features. */
 interface DetectedTour {
-  depot: { kind: "clinic" | "settlement"; name: string | null };
+  depot: { kind: "clinic" | "settlement"; name: string | null; osmId?: number };
   minCertainty: number;
   stops: number;
   skipped: number;
@@ -196,6 +199,8 @@ async function scanVillages(scanId: string): Promise<VillageLayer> {
         clinic_name: p.clinic ? (p.clinic.name ?? "Unnamed clinic") : null,
         healthcare_cost: p.healthcareUsd,
         buildings: p.buildings,
+        homes: p.homes,
+        building_source: p.buildingSource,
         // Older scans did not save the area; the polygon gives it back.
         area_m2: p.areaM2 ?? Math.round(turfArea(v)),
         compactness: p.compactness,
@@ -226,7 +231,53 @@ async function scanVillages(scanId: string): Promise<VillageLayer> {
       });
     }
   });
+  // A scan whose clinic serves other scans too shows that clinic's joined tour instead.
+  const meta = scans.find((m) => m.id === scanId);
+  const clinicId = meta?.tourClinicId ?? (tour?.depot.osmId != null ? String(tour.depot.osmId) : null);
+  const joined = tour && clinicId ? await joinedTour(clinicId) : null;
+  if (joined && clinicId && joined.summary.scanCount > 1) {
+    const position = new Map(joined.tour.order.map((stop, i) => [`${stop.scanId}/${stop.index + 1}`, i + 1]));
+    for (const area of areas.features) area.properties.tour_stop = position.get(area.properties.id);
+    // The clinic can be far outside this scan: make sure its marker is drawn.
+    if (!clinicIds.has(clinicId)) {
+      clinics.features.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [joined.summary.lon, joined.summary.lat] },
+        properties: { id: clinicId, name: joined.summary.clinicName ?? "Unnamed clinic" },
+      });
+    }
+    return { areas, routes, clinics, tour: joinedTourLayer(joined, tour?.minCertainty ?? 30) };
+  }
   return { areas, routes, clinics, tour: tour ? tourLayer(tour, detected.features) : null };
+}
+
+/** A clinic's joined tour (null when it has none). */
+async function joinedTour(clinicId: string): Promise<ClinicTourRecord | null> {
+  const response = await fetch(`/api/tours/${encodeURIComponent(clinicId)}`);
+  return response.ok ? ((await response.json()) as ClinicTourRecord) : null;
+}
+
+export function joinedTourLayer(record: ClinicTourRecord, minCertainty: number): TourLayer {
+  const s = record.summary;
+  return {
+    summary: {
+      depotKind: "clinic",
+      depotName: s.clinicName,
+      stops: s.stops,
+      skipped: s.skipped,
+      minCertainty,
+      costUsd: s.costUsd,
+      roadUsd: s.roadUsd,
+      offroadUsd: s.offroadUsd,
+      roadMeters: s.roadMeters,
+      offroadMeters: s.offroadMeters,
+      greedyUsd: s.costUsd,
+      vaccinationUsd: s.vaccinationUsd,
+      separateTripsUsd: 0,
+      joined: { clinicId: s.clinicId, scanCount: s.scanCount },
+    },
+    line: { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: record.tour.route }] },
+  };
 }
 
 /** Average of the ring's corners, the same point detect-villages.js routes to. */

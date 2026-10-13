@@ -36,8 +36,12 @@ export interface AreaProperties {
   // Explanation inputs. Present when known; older scans leave some out.
   /** Vaccination part of `estimated_cost`. */
   healthcare_cost?: number;
-  /** Roof clusters counted inside the polygon. */
+  /** Buildings counted inside the polygon: footprints, or roof clusters in older color scans. */
   buildings?: number;
+  /** Homes those buildings stand for (footprint scans only). */
+  homes?: number | null;
+  /** "footprints" (Microsoft building outlines) or "pixels" (roof colors). Unset in older scans. */
+  building_source?: "footprints" | "pixels";
   area_m2?: number;
   /** 1 for a circle, near 0 for a thin strip. */
   compactness?: number;
@@ -108,6 +112,8 @@ export interface TourSummary {
   vaccinationUsd: number;
   /** Rough cost of a separate clinic round trip to each visited settlement. */
   separateTripsUsd: number;
+  /** Set when this is the clinic's joined tour through several scans. */
+  joined?: { clinicId: string; scanCount: number };
 }
 
 export interface TourLayer {
@@ -151,6 +157,39 @@ export interface ScanMeta {
   settlements?: number;
   /** Settlements whose route starts at a clinic. 0 means no clinic was in range. */
   withClinic?: number;
+  /** OSM id of the clinic this scan's tour starts from; scans sharing it form one joined tour. */
+  tourClinicId?: string | null;
+  tourClinicName?: string | null;
+}
+
+/** Small part of a joined clinic tour (one tour through every scan that uses the clinic). */
+export interface ClinicTourSummary {
+  clinicId: string;
+  clinicName: string | null;
+  lon: number;
+  lat: number;
+  scans: string[];
+  scanCount: number;
+  stops: number;
+  skipped: number;
+  costUsd: number;
+  roadUsd: number;
+  offroadUsd: number;
+  roadMeters: number;
+  offroadMeters: number;
+  vaccinationUsd: number;
+  updatedAt: string;
+}
+
+/** A joined clinic tour, as saved in web/data/tours/<clinicId>.json and Supabase. */
+export interface ClinicTourRecord {
+  clinicId: string;
+  summary: ClinicTourSummary;
+  tour: {
+    /** Visiting order: settlement `index` of scan `scanId`. */
+    order: { scanId: string; index: number }[];
+    route: { type: "LineString"; coordinates: [number, number][] };
+  };
 }
 
 /** Totals over every saved scan's meta. */

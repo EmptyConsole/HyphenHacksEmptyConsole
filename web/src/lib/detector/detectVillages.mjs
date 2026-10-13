@@ -8,19 +8,24 @@
 //     so it also runs on Vercel, where there is no separate script to start.
 //
 // Pipeline:
-//   1. Download Esri satellite JPEGs for the bounding box and stitch them.
-//   2. Mark pixels that look like buildings (roofs and hard edges).
-//   3. Join nearby buildings into settlement blobs and trace each blob.
-//   4. If an OSM place sits inside or near a blob, certainty is 100.
-//      Otherwise score the blob from its shape and roofs, capped at 99.
-//   5. Estimate population and the money to vaccinate each village.
-//   6. Price a route from the nearest clinic along OSM roads.
-//   7. Recommend the polygon with the lowest predicted cost, and that route.
-//   8. Plan one team tour: clinic → every settlement → clinic, ordered for lowest cost.
+//   1. Get the buildings in the box: Microsoft's building footprints (an outline per
+//      building, from an AI model run over satellite imagery). Only where Microsoft has
+//      no data at all, fall back to finding roofs by color in Esri satellite tiles.
+//   2. Join buildings within ~50 m into settlements and trace each outline.
+//   3. If an OSM place sits inside or near a settlement, certainty is 100.
+//      Otherwise score it from its buildings and shape, capped at 99.
+//   4. Estimate population (homes × people per home) and the money to vaccinate it.
+//   5. Price a route from the nearest clinic along OSM roads.
+//   6. Recommend the polygon with the lowest predicted cost, and that route.
+//   7. Plan one team tour: clinic → every settlement → clinic, ordered for lowest cost.
 //
-// GeoJSON is printed on stdout. Progress lines go to stderr.
+// The function returns GeoJSON. Progress lines go to stderr.
 
 import jpeg from "jpeg-js";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 
 // Zoom 17 is about 1.2 m per pixel, small enough to see individual roofs.
 const ZOOM = 17;
@@ -32,6 +37,26 @@ const OPEN_RADIUS = 1;
 const CLOSE_RADIUS = 12;
 // Blobs smaller than this are a shed or noise, not a village. ~400 px is ~500 m².
 const MIN_PIXELS = 400;
+// --- Building footprints (Microsoft Global ML Building Footprints, ODbL) ---
+// List of every footprint file, one per zoom-9 map square (~78 km), with its download link.
+const FOOTPRINT_LINKS_URL = "https://minedbuildings.z5.web.core.windows.net/global-buildings/dataset-links.csv";
+const FOOTPRINT_QUADKEY_ZOOM = 9;
+// Downloaded files are kept here and reused; the link list is refreshed after a week.
+const FOOTPRINT_CACHE_DIR = join(tmpdir(), "hestia-footprints");
+const FOOTPRINT_LINKS_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+// Footprints are drawn on a grid this fine (meters per cell) to join and trace them.
+const FOOTPRINT_RES_M = 3;
+// Buildings closer than this belong to the same settlement.
+const FOOTPRINT_LINK_M = 50;
+// Smaller structures are granaries, sheds or latrines: part of a settlement, but nobody's home.
+const MIN_HOME_M2 = 10;
+// A building bigger than this counts as one home per this much floor area (compounds, blocks).
+const HOME_M2 = 150;
+// Average people per household in Nigeria (Nigeria DHS 2018).
+const PEOPLE_PER_HOME = 4.7;
+// The share of a settlement's outline covered by buildings that earns full marks (footprints).
+const FULL_COVERAGE = 0.15;
+
 // A blob with no separate roof at all is bare ground or a road, not a settlement.
 const MIN_ROOF_CLUSTERS = 1;
 // Red pixels count as roof only on a sharp edge. Red laterite soil and dirt roads are
@@ -67,9 +92,15 @@ const OVERPASS_SERVERS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
 ];
-// How far outside the village box to look for a clinic. 0.36° is about 40 km.
-// Remote villages are often 20–50 km from the nearest facility.
-const CLINIC_PAD_DEG = 0.36;
+// How far outside the village box to look for a clinic, widening until one is found.
+// 0.36° is about 40 km; remote villages are often 20–50 km from the nearest facility.
+// The last step (~660 km) covers any country, so every scan gets a clinic.
+const CLINIC_SEARCH_PADS_DEG = [0.36, 0.72, 1.5, 3, 6];
+// The search width used when even the widest step finds nothing (no clinic mapped at all).
+const CLINIC_PAD_DEG = CLINIC_SEARCH_PADS_DEG[CLINIC_SEARCH_PADS_DEG.length - 1];
+// All drivable roads are downloaded this far around the box. Farther out, toward a distant
+// clinic, only main roads are, which keeps the download small and is how a team would drive.
+const LOCAL_ROADS_PAD_DEG = 0.05;
 // Clinics tried per village. The cheapest road trip of these three wins.
 const CLINICS_PER_VILLAGE = 3;
 // A road farther than this is not a usable approach. The trip is priced off-road.
@@ -525,15 +556,19 @@ function outerRing(height, edges) {
 // Label each connected settlement and trace its outline.
 // Neighbors are 4-connected (up, down, left, right), matching the edge rules below.
 // A foreground pixel emits an edge on any side whose neighbor is background.
-function components(mask, roof, width, height) {
+// `labels`, when given, gets each blob's label at every one of its pixels, so callers can
+// tell which blob a point falls in. The blob's own `label` field says which value it used.
+function components(mask, roof, width, height, { minPixels = MIN_PIXELS, labels = null } = {}) {
   const seen = new Uint8Array(mask.length);
   const found = [];
   const stack = [];
+  let label = 0;
 
   for (let index = 0; index < mask.length; index++) {
     if (!mask[index] || seen[index]) continue;
     seen[index] = 1;
     stack.push(index);
+    label += 1;
     let pixels = 0;
     const roofIndices = [];
     const edges = [];
@@ -541,6 +576,7 @@ function components(mask, roof, width, height) {
     while (stack.length) {
       const pixel = stack.pop();
       pixels += 1;
+      if (labels) labels[pixel] = label;
       const x = pixel % width;
       const y = (pixel - x) / width;
       if (roof[pixel]) roofIndices.push(pixel);
@@ -573,7 +609,7 @@ function components(mask, roof, width, height) {
       }
     }
 
-    if (pixels < MIN_PIXELS) continue;
+    if (pixels < minPixels) continue;
     const ring = outerRing(height, edges);
     if (!ring) continue;
     // Only pixels in house-like clusters count toward the roof share.
@@ -581,6 +617,7 @@ function components(mask, roof, width, height) {
     found.push({
       ring,
       pixels,
+      label,
       roofPixels: roofs.pixels,
       buildings: roofs.clusters,
     });
@@ -823,8 +860,20 @@ function ringCentroid(ring) {
 }
 
 // Hospitals, clinics, doctors, and health posts. Ways use their center point.
+// The nearest facilities, searching wider and wider until at least one turns up.
 async function fetchClinics(bbox) {
-  const box = padBbox(bbox, CLINIC_PAD_DEG);
+  for (const pad of CLINIC_SEARCH_PADS_DEG) {
+    const clinics = await fetchClinicsWithin(padBbox(bbox, pad));
+    if (clinics.length) {
+      console.error(`clinic search: ${clinics.length} within ${Math.round(pad * 111)} km`);
+      return clinics;
+    }
+  }
+  return [];
+}
+
+// Hospitals, clinics, doctors, and health posts inside one box.
+async function fetchClinicsWithin(box) {
   const query = `[out:json][timeout:90];
 (
   node["amenity"~"^(hospital|clinic|doctors|health_post)$"](${box.south},${box.west},${box.north},${box.east});
@@ -900,12 +949,53 @@ function bboxAround(bbox, clinics) {
 }
 
 // Drivable roads, including tracks. Footpaths are not a vaccination route.
-async function fetchRoads(bbox) {
-  const query = `[out:json][timeout:90];
-way["highway"~"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|unclassified|residential|living_street|service|track)$"](${bbox.south},${bbox.west},${bbox.north},${bbox.east});
+const ALL_ROADS =
+  "motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|unclassified|residential|living_street|service|track";
+// Roads a team uses to cover long distances between a far clinic and the settlements.
+const MAIN_ROADS = "motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link";
+
+// Roads of the given types inside any of the boxes, in a single Overpass request.
+async function fetchRoads(boxes, types = ALL_ROADS) {
+  const parts = boxes
+    .map((b) => `  way["highway"~"^(${types})$"](${b.south},${b.west},${b.north},${b.east});`)
+    .join("\n");
+  const query = `[out:json][timeout:180];
+(
+${parts}
+);
 out geom;`;
   const elements = await fetchOverpass(query);
   return elements.filter((element) => element.type === "way");
+}
+
+// Every road near the boxes, plus main roads across the whole area out to the clinics.
+// `boxes` is one or more scan boxes (a joined clinic tour spans several).
+export async function fetchRoadNetwork(boxes, clinics) {
+  const ways = new Map();
+  const add = (list) => list.forEach((way) => ways.set(way.id, way));
+  add(await fetchRoads(boxes.map((box) => padBbox(box, LOCAL_ROADS_PAD_DEG))));
+  const all = boxes.reduce((acc, box) => ({
+    south: Math.min(acc.south, box.south),
+    west: Math.min(acc.west, box.west),
+    north: Math.max(acc.north, box.north),
+    east: Math.max(acc.east, box.east),
+  }));
+  const extent = bboxAround(all, clinics);
+  const local = boxes.length === 1 ? padBbox(boxes[0], LOCAL_ROADS_PAD_DEG) : null;
+  const reachesOut =
+    !local || extent.south < local.south || extent.west < local.west || extent.north > local.north || extent.east > local.east;
+  if (reachesOut) {
+    add(await fetchRoads([extent], MAIN_ROADS));
+    // The clinic itself may sit on a small road, so add every road right around each one.
+    if (clinics.length) {
+      add(
+        await fetchRoads(
+          clinics.map((c) => padBbox({ south: c.lat, west: c.lon, north: c.lat, east: c.lon }, LOCAL_ROADS_PAD_DEG)),
+        ),
+      );
+    }
+  }
+  return [...ways.values()];
 }
 
 // Dollars per kilometer. A track costs more because it is slower and harder on the vehicle.
@@ -1273,7 +1363,7 @@ function scoreAccess(features, clinics, graph) {
       best = cheaperTrip(best, straightTrip(choice.clinic, lon, lat));
     }
     if (!best) {
-      // No clinic inside the search pad. Price the whole search distance as off-road.
+      // No clinic mapped anywhere in the widest search. Price that whole distance as off-road.
       const meters = CLINIC_PAD_DEG * 110540;
       const difficulty = reachDifficulty(meters, meters, meters);
       best = {
@@ -1338,7 +1428,7 @@ async function recommendAccess(features, bbox) {
   let graph = buildRoadGraph([]);
   // Roads are needed even with no clinic: the team tour drives between settlements.
   try {
-    const ways = await fetchRoads(bboxAround(bbox, routed));
+    const ways = await fetchRoadNetwork([bbox], routed);
     graph = buildRoadGraph(ways);
     console.error(`road segments ${graph.segments.length}`);
   } catch (error) {
@@ -1458,7 +1548,8 @@ function twoOpt(order, cost) {
   return order;
 }
 
-function planTour(features, scores, clinics, graph) {
+// `depot`, when given, is the clinic the tour must start from (a joined clinic tour).
+function planTour(features, scores, clinics, graph, { depot: fixedDepot = null } = {}) {
   const stops = [];
   let skipped = 0;
   features.forEach((feature, index) => {
@@ -1472,7 +1563,7 @@ function planTour(features, scores, clinics, graph) {
   if (stops.length === 0) return null;
 
   // Node 0 is the depot: a clinic, or the settlement closest to a road when no clinic is in range.
-  const clinic = pickDepot(stops, scores, clinics);
+  const clinic = fixedDepot ?? pickDepot(stops, scores, clinics);
   let depot;
   if (clinic) {
     depot = {
@@ -1605,11 +1696,211 @@ function countOnes(mask) {
   return count;
 }
 
-// Run the whole pipeline on one box and return the GeoJSON FeatureCollection.
-// Progress lines go to console.error. Throws when tiles or OpenStreetMap can't be reached.
-export async function detectVillages(bbox) {
-  // The only input is the bounding box. Everything else is derived from it.
-  validateBbox(bbox);
+// --- Building footprints -----------------------------------------------------
+
+// Zoom-9 quadkey of a point: the name Microsoft uses for each footprint file's map square.
+function quadkey(lon, lat, zoom) {
+  const n = 2 ** zoom;
+  const x = Math.min(n - 1, Math.floor(((lon + 180) / 360) * n));
+  const rad = (lat * Math.PI) / 180;
+  const y = Math.min(n - 1, Math.floor(((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n));
+  let key = "";
+  for (let i = zoom; i > 0; i--) {
+    const bit = 1 << (i - 1);
+    key += String((x & bit ? 1 : 0) + (y & bit ? 2 : 0));
+  }
+  return key;
+}
+
+// Every quadkey the box touches. A 4 km box usually sits in one, at most four.
+function quadkeysForBbox(bbox) {
+  const keys = new Set();
+  for (const lon of [bbox.west, bbox.east]) {
+    for (const lat of [bbox.south, bbox.north]) keys.add(quadkey(lon, lat, FOOTPRINT_QUADKEY_ZOOM));
+  }
+  return [...keys];
+}
+
+// Download once, then reuse the copy in the cache folder.
+async function cachedDownload(url, file, maxAgeMs = Infinity) {
+  const path = join(FOOTPRINT_CACHE_DIR, file);
+  try {
+    const info = await stat(path);
+    if (Date.now() - info.mtimeMs < maxAgeMs) return readFile(path);
+  } catch {
+    // Not cached yet.
+  }
+  const response = await fetch(url, { headers: { "User-Agent": "village-polygon-detector/1.0" } });
+  if (!response.ok) throw new Error(`footprints: ${response.status} for ${url}`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  try {
+    await mkdir(FOOTPRINT_CACHE_DIR, { recursive: true });
+    await writeFile(`${path}.tmp`, buffer);
+    await rename(`${path}.tmp`, path);
+  } catch {
+    // No writable cache (unusual). Still fine for this run.
+  }
+  return buffer;
+}
+
+let footprintLinks = null;
+
+// quadkey → download links. One square can have several files (parts, or country borders).
+async function loadFootprintLinks() {
+  if (footprintLinks) return footprintLinks;
+  const csv = (await cachedDownload(FOOTPRINT_LINKS_URL, "dataset-links.csv", FOOTPRINT_LINKS_MAX_AGE_MS)).toString();
+  const links = new Map();
+  for (const line of csv.split("\n").slice(1)) {
+    const [, key, url] = line.split(",");
+    if (!key || !url) continue;
+    if (!links.has(key)) links.set(key, []);
+    links.get(key).push(url.trim());
+  }
+  footprintLinks = links;
+  return links;
+}
+
+// Buildings whose center is inside the box, or null when Microsoft has no data for this
+// part of the world (then the caller falls back to finding roofs by color).
+// A missing square inside a covered region just means no buildings were found there.
+async function loadFootprints(bbox) {
+  const links = await loadFootprintLinks();
+  const keys = quadkeysForBbox(bbox);
+  const covered = keys.some((key) => {
+    const region = key.slice(0, 6);
+    for (const known of links.keys()) if (known.startsWith(region)) return true;
+    return false;
+  });
+  if (!covered) return null;
+
+  const buildings = [];
+  const margin = 0.01;
+  for (const key of keys) {
+    for (const [i, url] of (links.get(key) ?? []).entries()) {
+      const gz = await cachedDownload(url, `${key}-${i}.csv.gz`);
+      for (const line of gunzipSync(gz).toString().split("\n")) {
+        // Cheap check on the first corner before parsing the whole line.
+        const at = line.indexOf("[[[");
+        if (at < 0) continue;
+        const comma = line.indexOf(",", at);
+        const lon = Number(line.slice(at + 3, comma));
+        const lat = Number(line.slice(comma + 1, line.indexOf("]", comma)));
+        if (lon < bbox.west - margin || lon > bbox.east + margin || lat < bbox.south - margin || lat > bbox.north + margin) {
+          continue;
+        }
+        const ring = JSON.parse(line).geometry.coordinates[0];
+        const [cx, cy] = ringCentroid(ring);
+        if (cx < bbox.west || cx > bbox.east || cy < bbox.south || cy > bbox.north) continue;
+        buildings.push({ ring, lon: cx, lat: cy, areaM2: ringStats(ring).area });
+      }
+    }
+  }
+  return buildings;
+}
+
+// How many homes a building stands for: none for a granary or shed, one for a house,
+// several for a big compound or block.
+function homesIn(areaM2) {
+  if (areaM2 < MIN_HOME_M2) return 0;
+  return Math.max(1, Math.round(areaM2 / HOME_M2));
+}
+
+// Fill a polygon (pixel coordinates) into a mask with an even-odd scanline.
+function fillPolygon(mask, width, height, points) {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const [, y] of points) {
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  for (let y = Math.max(0, Math.floor(minY)); y <= Math.min(height - 1, Math.ceil(maxY)); y++) {
+    const yc = y + 0.5;
+    const xs = [];
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+      const [xi, yi] = points[i];
+      const [xj, yj] = points[j];
+      if (yi > yc !== yj > yc) xs.push(xi + ((yc - yi) * (xj - xi)) / (yj - yi));
+    }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      for (let x = Math.max(0, Math.round(xs[k])); x < Math.min(width, Math.round(xs[k + 1])); x++) {
+        mask[y * width + x] = 1;
+      }
+    }
+  }
+}
+
+// Settlements from footprints: draw every building on a fine grid, join buildings within
+// FOOTPRINT_LINK_M by closing the gaps, trace each group, and count its homes.
+function footprintSettlements(bbox, buildings) {
+  const lat0 = (bbox.south + bbox.north) / 2;
+  const mPerLon = 111320 * Math.cos((lat0 * Math.PI) / 180);
+  const mPerLat = 110540;
+  const pad = FOOTPRINT_LINK_M;
+  const width = Math.ceil(((bbox.east - bbox.west) * mPerLon + 2 * pad) / FOOTPRINT_RES_M);
+  const height = Math.ceil(((bbox.north - bbox.south) * mPerLat + 2 * pad) / FOOTPRINT_RES_M);
+  const toPx = (lon, lat) => [
+    ((lon - bbox.west) * mPerLon + pad) / FOOTPRINT_RES_M,
+    ((bbox.north - lat) * mPerLat + pad) / FOOTPRINT_RES_M,
+  ];
+  const toLonLat = (x, y) => [
+    bbox.west + (x * FOOTPRINT_RES_M - pad) / mPerLon,
+    bbox.north - (y * FOOTPRINT_RES_M - pad) / mPerLat,
+  ];
+
+  const mask = new Uint8Array(width * height);
+  const centerPixel = [];
+  for (const b of buildings) {
+    fillPolygon(mask, width, height, b.ring.map(([lon, lat]) => toPx(lon, lat)));
+    // A building smaller than one cell still marks its center.
+    const [x, y] = toPx(b.lon, b.lat).map(Math.floor);
+    const pixel = y * width + x;
+    mask[pixel] = 1;
+    centerPixel.push(pixel);
+  }
+
+  // Close (grow, then shrink) by half the link distance: gaps narrower than the link
+  // distance fill in, and the outline still hugs the outer buildings.
+  const radius = Math.ceil(FOOTPRINT_LINK_M / 2 / FOOTPRINT_RES_M);
+  const scratch = new Uint8Array(mask.length);
+  const grown = new Uint8Array(mask.length);
+  const closed = new Uint8Array(mask.length);
+  rectFilter(mask, width, height, radius, true, scratch, grown);
+  rectFilter(grown, width, height, radius, false, scratch, closed);
+
+  const labels = new Int32Array(mask.length);
+  const blobs = components(closed, new Uint8Array(mask.length), width, height, { minPixels: 1, labels });
+  const byLabel = new Map(blobs.map((blob) => [blob.label, { blob, buildings: [] }]));
+  buildings.forEach((b, i) => byLabel.get(labels[centerPixel[i]])?.buildings.push(b));
+
+  const settlements = [];
+  for (const { blob, buildings: members } of byLabel.values()) {
+    const homes = members.reduce((sum, b) => sum + homesIn(b.areaM2), 0);
+    // Only sheds and granaries: nobody lives here.
+    if (homes === 0) continue;
+    const simplified = simplify(blob.ring, 1);
+    if (simplified.length < 3) continue;
+    const ring = simplified.map(([x, y]) => toLonLat(x, y));
+    const builtM2 = members.reduce((sum, b) => sum + b.areaM2, 0);
+    settlements.push({ ring, buildings: members.length, homes, builtM2 });
+  }
+  return settlements;
+}
+
+// Footprint certainty. Same three parts and weights as satelliteCertainty, but the last
+// part is the share of the outline covered by building footprints, which is real data.
+function footprintCertainty(buildings, compactness, coverage) {
+  const buildingScore = Math.min(buildings / 8, 1);
+  const shapeScore = Math.min(compactness / 0.45, 1);
+  const coverageScore = Math.min(coverage / FULL_COVERAGE, 1);
+  const score = 100 * (0.45 * buildingScore + 0.3 * shapeScore + 0.25 * coverageScore);
+  return Math.min(99, Math.round(score));
+}
+
+// --- Color fallback --------------------------------------------------------
+
+// Settlements by finding roofs in Esri satellite pixels. Used only where there are no footprints.
+async function pixelSettlements(bbox) {
   // Download and stitch the satellite tiles that cover that box.
   const grid = await loadSatellite(bbox);
 
@@ -1634,9 +1925,45 @@ export async function detectVillages(bbox) {
 
   // Join nearby roofs into one blob per settlement and remove speckle.
   const mask = settlementMask(built, grid.width, grid.height);
-  // Trace each blob that is large enough to be a village.
-  const blobs = components(mask, roof, grid.width, grid.height);
-  console.error(`settlements ${blobs.length}`);
+  const settlements = [];
+  for (const blob of components(mask, roof, grid.width, grid.height)) {
+    if (blob.buildings < MIN_ROOF_CLUSTERS) continue;
+    // Pixel outlines follow every stair-step. Keep only corners that change direction.
+    const simplified = simplify(blob.ring, SIMPLIFY_PX);
+    // A ring needs three corners. Fewer than that is a degenerate sliver.
+    if (simplified.length < 3) continue;
+    // Pixel corners are in image space. GeoJSON needs longitude, latitude.
+    const ring = simplified.map(([x, y]) => cornerToLonLat(x, y, grid));
+    // Share of the blob that looked like a roof. Roads and fields score low here.
+    const roofShare = blob.pixels === 0 ? 0 : blob.roofPixels / blob.pixels;
+    settlements.push({ ring, buildings: blob.buildings, roofShare });
+  }
+  return settlements;
+}
+
+// Run the whole pipeline on one box and return the GeoJSON FeatureCollection.
+// Progress lines go to console.error. Throws when tiles or OpenStreetMap can't be reached.
+export async function detectVillages(bbox) {
+  // The only input is the bounding box. Everything else is derived from it.
+  validateBbox(bbox);
+
+  // Real building outlines where Microsoft has them; roof colors only as a fallback.
+  let buildingSource = "footprints";
+  let found;
+  let footprints = null;
+  try {
+    footprints = await loadFootprints(bbox);
+  } catch (error) {
+    console.error(`footprints unavailable: ${error.message || error}`);
+  }
+  if (footprints) {
+    console.error(`footprint buildings ${footprints.length}`);
+    found = footprintSettlements(bbox, footprints);
+  } else {
+    buildingSource = "pixels";
+    found = await pixelSettlements(bbox);
+  }
+  console.error(`settlements ${found.length} (${buildingSource})`);
 
   // OSM places are the only source that can produce certainty 100.
   const places = await fetchOsmPlaces(bbox);
@@ -1644,15 +1971,8 @@ export async function detectVillages(bbox) {
 
   // One GeoJSON feature per village polygon.
   const features = [];
-  for (const blob of blobs) {
-    if (blob.buildings < MIN_ROOF_CLUSTERS) continue;
-    // Pixel outlines follow every stair-step. Keep only corners that change direction.
-    const simplified = simplify(blob.ring, SIMPLIFY_PX);
-    // A ring needs three corners. Fewer than that is a degenerate sliver.
-    if (simplified.length < 3) continue;
-
-    // Pixel corners are in image space. GeoJSON needs longitude, latitude.
-    const geographic = simplified.map(([x, y]) => cornerToLonLat(x, y, grid));
+  for (const settlement of found) {
+    const geographic = settlement.ring;
     // Signed area tells the winding. GeoJSON exteriors must be counter-clockwise.
     const { area2 } = ringStats(geographic);
     // Negative area is clockwise, so flip the ring. Shape and area stay the same.
@@ -1662,18 +1982,27 @@ export async function detectVillages(bbox) {
 
     // Inside the polygon, or within 150 m, this place confirms the village.
     const place = nearestPlace(geographic, places);
-    // A stringy web of soil and tracks. Keep it only if OSM says people live there.
-    const stringy = stats.compactness < MIN_COMPACTNESS;
-    if (stringy && !place) continue;
-    // Share of the blob that looked like a roof. Roads and fields score low here.
-    const roofShare = blob.pixels === 0 ? 0 : blob.roofPixels / blob.pixels;
+
+    let certaintyScore;
+    let population;
+    let roofShare;
+    if (buildingSource === "footprints") {
+      // Share of the outline covered by building footprints.
+      roofShare = stats.area === 0 ? 0 : Math.min(1, settlement.builtM2 / stats.area);
+      certaintyScore = footprintCertainty(settlement.buildings, stats.compactness, roofShare);
+      population = Math.max(1, Math.round(settlement.homes * PEOPLE_PER_HOME));
+    } else {
+      // A stringy web of soil and tracks. Keep it only if OSM says people live there.
+      const stringy = stats.compactness < MIN_COMPACTNESS;
+      if (stringy && !place) continue;
+      roofShare = settlement.roofShare;
+      certaintyScore = satelliteCertainty(settlement.buildings, stats.compactness, roofShare);
+      // People from roofs and from settlement area. The larger figure is kept.
+      // A stringy outline's area is mostly empty ground, so it counts roofs only.
+      population = estimatePopulation(settlement.buildings, stringy ? 0 : stats.area);
+    }
     // A matched OSM place is 100. Anything else is a satellite guess, never 100.
-    const certainty = place
-      ? 100
-      : satelliteCertainty(blob.buildings, stats.compactness, roofShare);
-    // People from roofs and from settlement area. The larger figure is kept.
-    // A stringy outline's area is mostly empty ground, so it counts roofs only.
-    const population = estimatePopulation(blob.buildings, stringy ? 0 : stats.area);
+    const certainty = place ? 100 : certaintyScore;
     const healthcareUsd = healthcareCost(population);
 
     // Round so coordinates stay readable. Six decimals is about 0.1 m.
@@ -1693,8 +2022,11 @@ export async function detectVillages(bbox) {
         // People and vaccination cost. Reach cost is filled in after routing.
         population,
         healthcareUsd,
-        // Inputs to the population estimate and the satellite certainty, kept for explanations.
-        buildings: blob.buildings,
+        // Where the buildings came from: "footprints" (Microsoft) or "pixels" (roof colors).
+        buildingSource,
+        // Inputs to the population estimate and the certainty, kept for explanations.
+        buildings: settlement.buildings,
+        homes: settlement.homes ?? null,
         areaM2: Math.round(stats.area),
         compactness: Math.round(stats.compactness * 1000) / 1000,
         roofShare: Math.round(roofShare * 1000) / 1000,
@@ -1712,4 +2044,27 @@ export async function detectVillages(bbox) {
   // money, reach difficulty, and the cost to get there.
   // `tour` is one round trip from a clinic through every settlement worth visiting.
   return { type: "FeatureCollection", recommendation, tour, features };
+}
+
+// --- Joined clinic tours ---------------------------------------------------
+
+// One tour from `clinic` through the settlements of several scans, on one road network that
+// covers all of them. `scans` is [{ id, bbox, features }]. Stops come back as
+// { scanId, index } (index into that scan's features), in visiting order.
+export async function planClinicTour(clinic, scans) {
+  const features = [];
+  const owners = [];
+  for (const scan of scans) {
+    scan.features.forEach((feature, index) => {
+      // Copies, so planning never writes into the saved scans.
+      features.push({ ...feature, properties: { ...feature.properties } });
+      owners.push({ scanId: scan.id, index });
+    });
+  }
+  if (!features.length) return null;
+  const graph = buildRoadGraph(await fetchRoadNetwork(scans.map((scan) => scan.bbox), [clinic]));
+  console.error(`joined tour: ${scans.length} scans, ${features.length} settlements, ${graph.segments.length} road segments`);
+  const tour = planTour(features, null, [clinic], graph, { depot: clinic });
+  if (!tour) return null;
+  return { ...tour, order: tour.order.map((i) => owners[i]) };
 }

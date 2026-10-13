@@ -30,10 +30,13 @@ import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { feature } from "topojson-client";
-import { supabaseEnabled, upsertScan } from "./supabase-store.js";
+import { supabaseEnabled, upsertClinicTour, upsertScan } from "./supabase-store.js";
+import { buildClinicTour, tourClinicOf } from "./web/src/lib/detector/clinicTours.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(ROOT, "web", "data", "scans");
+// Joined clinic tours, one file per clinic: <clinic OSM id>.json.
+const TOURS_DIR = join(ROOT, "web", "data", "tours");
 const COUNTRIES_FILE = join(ROOT, "web", "public", "data", "countries-50m.json");
 // Half the box side in degrees. 0.04° square stays under the detector's 400-tile cap.
 const HALF_DEG = 0.02;
@@ -51,7 +54,8 @@ const CLINIC_RANGE_KM = 40;
 // 2: settlements need at least one roof cluster, so tours and totals changed.
 // 3: red roofs need a sharp edge, roof clusters must be house-sized, stringy blobs dropped.
 // 4: those rules tightened, and teal metal roofs recognized.
-const TOUR_VERSION = 4;
+// 5: buildings from Microsoft footprints; population is homes × 4.7.
+const TOUR_VERSION = 5;
 // Wait before retrying a box that failed because Overpass was busy.
 const BUSY_RETRY_MS = 45000;
 // Longest wait after failures in a row, before trying the next grid cell.
@@ -278,10 +282,10 @@ function saveScan(meta, collection, metaPath = join(OUT_DIR, `${meta.id}.meta.js
 
 // Shared copy in Supabase, so other computers' maps see it. A failure here never
 // loses the scan: the local files are already written, and --sync can upload later.
-async function shareScan(meta, collection, options) {
+async function shareScan(meta, collection) {
   if (!supabaseEnabled) return;
   try {
-    const result = await upsertScan(meta, collection, options);
+    const result = await upsertScan(meta, collection);
     log(`  supabase: ${result} ${meta.id}`);
   } catch (error) {
     log(`  supabase: upload of ${meta.id} failed (${error.message}); run --sync later`);
@@ -333,7 +337,57 @@ function summarize(collection) {
     tourVersion: collection.tour !== undefined ? TOUR_VERSION : undefined,
     tourCostUsd: collection.tour?.costUsd ?? null,
     tourStops: collection.tour?.stops ?? 0,
+    // The clinic this scan's tour starts from: scans sharing it are joined into one tour.
+    tourClinicId: tourClinicOf(collection) ? String(tourClinicOf(collection).osmId) : null,
+    tourClinicName: tourClinicOf(collection)?.name ?? null,
   };
+}
+
+// Which clinic each local scan's tour starts from. Older meta files don't record it, so
+// those are read from the scan file once and remembered.
+const clinicOfScan = new Map();
+
+function localScansForClinic(clinicId) {
+  const found = [];
+  for (const file of readdirSync(OUT_DIR)) {
+    if (!file.endsWith(".meta.json")) continue;
+    const meta = JSON.parse(readFileSync(join(OUT_DIR, file), "utf8"));
+    let id = meta.tourClinicId;
+    let collection = null;
+    if (id === undefined) {
+      const key = `${meta.id}@${meta.updatedAt ?? meta.createdAt}`;
+      if (!clinicOfScan.has(key)) {
+        collection = JSON.parse(readFileSync(join(OUT_DIR, `${meta.id}.json`), "utf8"));
+        const clinic = tourClinicOf(collection);
+        clinicOfScan.set(key, clinic ? String(clinic.osmId) : null);
+      }
+      id = clinicOfScan.get(key);
+    }
+    if (id !== clinicId) continue;
+    collection ??= JSON.parse(readFileSync(join(OUT_DIR, `${meta.id}.json`), "utf8"));
+    found.push({ meta, collection });
+  }
+  return found;
+}
+
+// Re-plan the joined tour of the clinic this scan's tour starts from, and save it locally
+// and to Supabase. A failure never loses the scan itself; the next save re-plans anyway.
+async function refreshClinicTour(collection) {
+  const clinic = tourClinicOf(collection);
+  if (!clinic) return;
+  const clinicId = String(clinic.osmId);
+  try {
+    const scans = localScansForClinic(clinicId);
+    const record = await buildClinicTour(clinic, scans);
+    if (!record) return;
+    mkdirSync(TOURS_DIR, { recursive: true });
+    writeAtomic(join(TOURS_DIR, `${clinicId}.json`), record);
+    const s = record.summary;
+    log(`  clinic tour ${s.clinicName ?? clinicId}: ${s.scanCount} scans, ${s.stops} stops, $${s.costUsd} travel`);
+    if (supabaseEnabled) await upsertClinicTour(record);
+  } catch (error) {
+    log(`  clinic tour for ${clinicId} failed: ${error.message}`);
+  }
 }
 
 function existingCounts() {
@@ -415,7 +469,8 @@ async function scanBox(country, bbox, extra) {
     };
     saveScan(meta, collection);
     log(`${country.name}: saved ${id} (${meta.villages} villages, ${meta.population} people)`);
-    await shareScan(meta, collection, { isNew: true });
+    await shareScan(meta, collection);
+    await refreshClinicTour(collection);
     return true;
   } catch (error) {
     log(`${country.name}: scan failed: ${error.message}`);
@@ -540,6 +595,7 @@ async function rerun(meta, metaPath, reason) {
     saveScan(updated, collection, metaPath);
     log(`${meta.countryName}: updated ${meta.id} (${updated.villages} villages, ${updated.population} people)`);
     await shareScan(updated, collection);
+    await refreshClinicTour(collection);
     return true;
   } catch (error) {
     log(`${meta.countryName}: re-run of ${meta.id} failed: ${error.message}`);

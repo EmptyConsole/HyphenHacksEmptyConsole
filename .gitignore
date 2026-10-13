@@ -2,3 +2,5 @@ node_modules
 # Supabase keys and other secrets
 .env
 .env.*
+# Supabase admin SQL, run by hand in the dashboard; not tracked
+supabase-*.sql

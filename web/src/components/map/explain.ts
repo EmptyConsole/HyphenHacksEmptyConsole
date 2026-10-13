@@ -1,5 +1,5 @@
 import { baselineConfig } from "@/data/baselineConfig";
-import type { AreaCollection, AreaProperties, ScanMeta, TourSummary } from "@/data/types";
+import type { AreaCollection, AreaProperties, ClinicTourSummary, ScanMeta, TourSummary } from "@/data/types";
 import { formatCost, formatPopulation } from "@/lib/format";
 
 /**
@@ -8,6 +8,11 @@ import { formatCost, formatPopulation } from "@/lib/format";
  * The constants mirror detect-villages.js; keep them in sync when tuning it.
  */
 const DETECTOR = {
+  // Footprint scans (homesIn() and FULL_COVERAGE in detectVillages.mjs).
+  peoplePerHome: 4.7,
+  minHomeM2: 10,
+  homeM2: 150,
+  fullCoverage: 0.15,
   peoplePerBuilding: 5,
   metersPerDwelling: 250,
   usdPerPerson: 10,
@@ -238,8 +243,9 @@ export function explainStat(key: StatKey, ctx: PanelContext): Explanation {
 
 export function explainTour(t: TourSummary): Explanation {
   const start = t.depotKind === "clinic" ? (t.depotName ?? "the nearest clinic") : "the settlement nearest a road";
+  const across = t.joined ? ` across ${t.joined.scanCount} scan areas` : "";
   return {
-    summary: `One team leaves ${start}, visits ${t.stops} settlements and comes back, for ${usd(t.costUsd)} in travel.`,
+    summary: `One team leaves ${start}, visits ${t.stops} settlements${across} and comes back, for ${usd(t.costUsd)} in travel.`,
     rows: [
       { label: `Roads, ${km(t.roadMeters)}`, value: usd(t.roadUsd) },
       { label: `Off-road, ${km(t.offroadMeters)}`, value: usd(t.offroadUsd) },
@@ -248,15 +254,50 @@ export function explainTour(t: TourSummary): Explanation {
       { label: "= Total", value: usd(t.costUsd + t.vaccinationUsd) },
     ],
     note:
+      (t.joined
+        ? "Every scan area whose nearest clinic is this one is joined into this single trip. "
+        : "") +
       "Stops are put in the order that keeps travel cheapest, using roads wherever that's cheaper than going straight across country." +
       (t.depotKind === "clinic" ? "" : " No clinic was found nearby, so the tour starts at the settlement closest to a road.") +
       (t.skipped ? ` ${t.skipped} low-confidence detections are left out.` : ""),
   };
 }
 
+/** A clinic marker: its joined tour through every scan area it serves. */
+export function explainClinicTour(s: ClinicTourSummary): Explanation {
+  return {
+    summary: `${s.clinicName ?? "This clinic"} is the nearest clinic for ${s.scanCount} scan area${s.scanCount === 1 ? "" : "s"}. One team from here can reach all ${s.stops} settlements in a single round trip.`,
+    rows: [
+      { label: `Roads, ${km(s.roadMeters)}`, value: usd(s.roadUsd) },
+      { label: `Off-road, ${km(s.offroadMeters)}`, value: usd(s.offroadUsd) },
+      { label: "= Travel", value: usd(s.costUsd) },
+      { label: "+ Vaccination", value: usd(s.vaccinationUsd) },
+      { label: "= Total", value: usd(s.costUsd + s.vaccinationUsd) },
+    ],
+    note:
+      "The tour is re-planned every time a scan near this clinic is saved, using roads wherever that's cheaper than going straight across country." +
+      (s.skipped ? ` ${s.skipped} low-confidence detections are left out.` : ""),
+  };
+}
+
 // ---- One settlement -------------------------------------------------------
 
+/** Footprint scans: buildings → homes → people. Mirrors homesIn() in detectVillages.mjs. */
+function footprintPopulation(v: AreaProperties): Explanation {
+  const homes = v.homes ?? 0;
+  return {
+    summary: `About ${num(v.estimated_population)} people: ${num(v.buildings ?? 0)} buildings make ${num(homes)} homes × ${DETECTOR.peoplePerHome} people each.`,
+    rows: [
+      { label: "Buildings (Microsoft footprints)", value: num(v.buildings ?? 0) },
+      { label: "→ Homes", value: num(homes) },
+      { label: `× ${DETECTOR.peoplePerHome} people per home`, value: num(v.estimated_population) },
+    ],
+    note: `Buildings under ${DETECTOR.minHomeM2} m² (granaries, sheds) aren't homes. A normal house is one home; a building over ${DETECTOR.homeM2} m² counts as one home per ${DETECTOR.homeM2} m². ${DETECTOR.peoplePerHome} is Nigeria's average household size (DHS 2018).`,
+  };
+}
+
 function villagePopulation(v: AreaProperties): Explanation {
+  if (v.building_source === "footprints") return footprintPopulation(v);
   const { peoplePerBuilding: per, metersPerDwelling: m2 } = DETECTOR;
   const area = v.area_m2 ?? 0;
   const fromArea = Math.round(area / m2) * per;
@@ -331,16 +372,28 @@ function villageConfidence(v: AreaProperties): Explanation {
     };
   }
   const has = v.buildings !== undefined && v.compactness !== undefined && v.roof_share !== undefined;
+  const footprints = v.building_source === "footprints";
+  const fullShare = footprints ? DETECTOR.fullCoverage : 0.35;
   return {
-    summary: `${confidenceLevel(v)}: found only in satellite images (score ${v.certainty}/100).`,
+    summary: footprints
+      ? `${confidenceLevel(v)}: its buildings are mapped, but OpenStreetMap has no name for the place (score ${v.certainty}/100).`
+      : `${confidenceLevel(v)}: found only in satellite images (score ${v.certainty}/100).`,
     rows: has
       ? [
-          { label: `Roofs counted, ${v.buildings}`, value: pts(Math.min(v.buildings! / 8, 1) * 45, 45) },
+          {
+            label: `${footprints ? "Buildings" : "Roofs counted"}, ${v.buildings}`,
+            value: pts(Math.min(v.buildings! / 8, 1) * 45, 45),
+          },
           { label: "Village-like shape", value: pts(Math.min(v.compactness! / 0.45, 1) * 30, 30) },
-          { label: `Roof-colored area, ${pct(v.roof_share!)}`, value: pts(Math.min(v.roof_share! / 0.35, 1) * 25, 25) },
+          {
+            label: `${footprints ? "Area covered by buildings" : "Roof-colored area"}, ${pct(v.roof_share!)}`,
+            value: pts(Math.min(v.roof_share! / fullShare, 1) * 25, 25),
+          },
         ]
       : undefined,
-    note: "More roofs, a compact shape and more roof-colored ground all raise the score. It stays below 100 unless OpenStreetMap confirms the place. High is 75+, Medium 50–74, Low under 50.",
+    note: footprints
+      ? `More buildings, a compact shape and more of the outline covered by buildings all raise the score (full at 8 buildings, and at ${pct(DETECTOR.fullCoverage)} covered). It stays below 100 unless OpenStreetMap names the place. High is 75+, Medium 50–74, Low under 50.`
+      : "More roofs, a compact shape and more roof-colored ground all raise the score. It stays below 100 unless OpenStreetMap confirms the place. High is 75+, Medium 50–74, Low under 50.",
   };
 }
 

@@ -26,9 +26,9 @@ function PictureScene() {
           </div>
         ))}
       </div>
-      <p className={styles.sceneNote}>Four photos land, then the seams close. One picture.</p>
+      <p className={styles.sceneNote}>Building outlines arrive square by square and are trimmed to the box.</p>
       <button type="button" className={styles.textButton} onClick={() => setRun((value) => value + 1)}>
-        Stitch again
+        Load again
       </button>
     </div>
   );
@@ -109,7 +109,7 @@ function JoinScene() {
           <path className={styles.shedMark} pathLength={1} d="M170 90 L196 112" />
         </g>
       </svg>
-      <p className={styles.sceneNote}>Roofs close enough to touch become one village. The shed on its own is too small.</p>
+      <p className={styles.sceneNote}>Buildings within about 50 m become one settlement. A shed on its own isn&apos;t a home.</p>
       <button type="button" className={styles.textButton} onClick={() => setRun((value) => value + 1)}>
         Join again
       </button>
@@ -117,19 +117,20 @@ function JoinScene() {
   );
 }
 
-const SAMPLE = { buildings: 6, compactness: 0.36, roofShare: 0.28 };
+// Mirrors footprintCertainty() in detectVillages.mjs.
+const SAMPLE = { buildings: 6, compactness: 0.36, roofShare: 0.11 };
 
 function satelliteScore(buildings: number, compactness: number, roofShare: number) {
   const buildingScore = Math.min(buildings / 8, 1);
   const shapeScore = Math.min(compactness / 0.45, 1);
-  const roofScore = Math.min(roofShare / 0.35, 1);
+  const roofScore = Math.min(roofShare / 0.15, 1);
   const score = 100 * (0.45 * buildingScore + 0.3 * shapeScore + 0.25 * roofScore);
   return {
     total: Math.min(99, Math.round(score)),
     parts: [
-      { label: "Roofs", hint: "45% of the score", fill: buildingScore },
+      { label: "Buildings", hint: "45% of the score", fill: buildingScore },
       { label: "Compact shape", hint: "30% of the score", fill: shapeScore },
-      { label: "Roof color", hint: "25% of the score", fill: roofScore },
+      { label: "Area covered by buildings", hint: "25% of the score", fill: roofScore },
     ],
   };
 }
@@ -181,15 +182,16 @@ function CheckScene() {
 
 function CostScene() {
   const id = useId();
-  const [roofs, setRoofs] = useState(8);
-  const people = roofs * 5;
+  const [homes, setHomes] = useState(8);
+  // Mirrors PEOPLE_PER_HOME and the vaccination cost in detectVillages.mjs.
+  const people = Math.round(homes * 4.7);
   const cost = people * 10 + 100;
 
   return (
     <div className={styles.scene}>
       <label className={styles.sliderLabel} htmlFor={id}>
-        Roofs
-        <span>{roofs}</span>
+        Homes
+        <span>{homes}</span>
       </label>
       <input
         id={id}
@@ -197,18 +199,20 @@ function CostScene() {
         type="range"
         min={1}
         max={16}
-        value={roofs}
-        onChange={(event) => setRoofs(Number(event.target.value))}
+        value={homes}
+        onChange={(event) => setHomes(Number(event.target.value))}
       />
       <p className={styles.formula}>
         <span>
-          {roofs} roofs × 5 = <strong>{people} people</strong>
+          {homes} homes × 4.7 = <strong>{people} people</strong>
         </span>
         <span>
-          {people} × $10 + $100 stop = <strong>{usd(cost)}</strong>
+          {people} × $10 + $100 visit = <strong>{usd(cost)}</strong>
         </span>
       </p>
-      <p className={styles.sceneNote}>Drag the slider. The stop costs $100 even for a tiny settlement.</p>
+      <p className={styles.sceneNote}>
+        Drag the slider. Sheds and granaries aren&apos;t homes, and the visit costs $100 even for a tiny settlement.
+      </p>
     </div>
   );
 }

@@ -1,31 +1,34 @@
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ScanMeta, ScanRequest, ScanSummary } from "@/data/types";
+import { after } from "next/server";
+import type { ClinicTourRecord, ScanMeta, ScanRequest, ScanSummary } from "@/data/types";
+import { buildClinicTour, tourClinicOf } from "@/lib/detector/clinicTours.mjs";
 import { detectVillages } from "@/lib/detector/detectVillages.mjs";
 
 /**
  * Server-only. Scans live in web/data/scans as `<id>.json` (detector output) plus
  * `<id>.meta.json` (summary); scan-batch.js writes the same files. Supabase (table
- * public.scans, one row per scan, json = { meta, scan }) shares scans between computers:
- * the map lists the local files, then adds any scan from Supabase that isn't on disk.
+ * public.scans) shares scans between computers: the map lists the local files, then adds
+ * any scan from Supabase that isn't on disk.
  *
- * Reading a scan id out of `json` makes Postgres parse every row's whole document, which is
- * slow and swamps a small database. So supabase-index.json maps row uuid → scan id, and only
- * rows missing from it are ever opened. Supabase is checked in the background at most once
- * a minute and the list never waits for it: new rows show up on the map's next refresh.
+ * Besides `json` ({ meta, scan }), each row has two small columns a trigger keeps filled
+ * (see supabase-speedup.sql): scan_id (unique, indexed) and meta. Listing and lookups use
+ * those, so the big json is only read when a scan that isn't on disk is opened. Supabase is
+ * checked in the background at most once a minute and the list never waits for it.
  *
  * Keys come from web/.env.local (git-ignored): SUPABASE_URL and SUPABASE_SECRET_KEY.
  */
 
 const SCANS_DIR = path.join(process.cwd(), "data", "scans");
-const INDEX_FILE = path.join(SCANS_DIR, "supabase-index.json");
+// Joined clinic tours, one file per clinic: <clinic OSM id>.json.
+const TOURS_DIR = path.join(process.cwd(), "data", "tours");
 // A little under the route's 300 s maxDuration, so the user gets a clear message, not a cut-off.
 const RUN_TIMEOUT_MS = 280 * 1000;
 const ID_PATTERN = /^[0-9a-z-]+$/;
-/** How often the scan list asks Supabase for new rows. */
+/** How often the scan list asks Supabase for new scans. */
 const REMOTE_REFRESH_MS = 60 * 1000;
-/** Rows whose summary is read per request when catching up on new rows. */
-const META_BATCH = 10;
+/** Summaries fetched per request when catching up on new scans. */
+const META_BATCH = 50;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY;
@@ -43,61 +46,29 @@ async function supabase<T>(query: string, init: RequestInit = {}, timeoutMs = 30
   return (text ? JSON.parse(text) : null) as T;
 }
 
-// ---- Row index: Supabase row uuid → scan id (shared with supabase-store.js) ----
-
-let rowIndex: Record<string, string> | null = null;
-
-async function loadIndex() {
-  if (rowIndex) return rowIndex;
-  try {
-    rowIndex = JSON.parse(await readFile(INDEX_FILE, "utf8")) as Record<string, string>;
-  } catch {
-    rowIndex = {};
-  }
-  return rowIndex;
-}
-
-/** Best effort: on Vercel the folder is read-only, and the index just lives in memory. */
-async function saveIndex() {
-  try {
-    await writeAtomic(INDEX_FILE, JSON.stringify(rowIndex, null, 1));
-  } catch {
-    // Read-only disk.
-  }
-}
-
 // ---- Scans that exist in Supabase but not on disk ----
 
-/** Remote scans by scan id, with the row they live in. */
-const remote = new Map<string, { rowId: string; meta: ScanMeta }>();
+/** Summaries of remote scans, by scan id. */
+const remote = new Map<string, ScanMeta>();
 let lastRefresh = 0;
 let refreshing: Promise<void> | null = null;
 
-/** Find rows not seen before and keep the summaries of the ones that aren't local files. */
+/** List scan ids (tiny), then read the summary of each one that isn't local or cached. */
 async function refreshRemote(localIds: Set<string>) {
-  const index = await loadIndex();
-  const rows = await supabase<{ id: string }[]>("scans?select=id", {}, 15_000);
-  // A row needs its summary read when it's new, or when it's a remote scan we haven't cached.
+  const rows = await supabase<{ scan_id: string | null }[]>("scans?select=scan_id", {}, 15_000);
   const needed = rows
-    .map((row) => row.id)
-    .filter((rowId) => !(rowId in index) || (!localIds.has(index[rowId]) && !remote.has(index[rowId])));
+    .map((row) => row.scan_id)
+    .filter((id): id is string => !!id && ID_PATTERN.test(id) && !localIds.has(id) && !remote.has(id));
   for (let i = 0; i < needed.length; i += META_BATCH) {
     const batch = needed.slice(i, i + META_BATCH);
-    const metas = await supabase<{ id: string; meta: ScanMeta | null }[]>(
-      `scans?select=id,meta:json->meta&id=in.(${batch.join(",")})`,
-    );
-    for (const { id: rowId, meta } of metas) {
-      if (!meta?.id) continue;
-      index[rowId] = meta.id;
-      if (!localIds.has(meta.id)) remote.set(meta.id, { rowId, meta });
-    }
+    const metas = await supabase<{ meta: ScanMeta | null }[]>(`scans?select=meta&scan_id=in.(${batch.join(",")})`);
+    for (const { meta } of metas) if (meta?.id) remote.set(meta.id, meta);
   }
-  if (needed.length) await saveIndex();
   lastRefresh = Date.now();
 }
 
 /** Remote summaries known so far. Starts a background check at most once a minute; never waits. */
-async function remoteScans(localIds: Set<string>): Promise<ScanMeta[]> {
+function remoteScans(localIds: Set<string>): ScanMeta[] {
   if (!supabaseEnabled) return [];
   if (!refreshing && Date.now() - lastRefresh > REMOTE_REFRESH_MS) {
     refreshing = refreshRemote(localIds)
@@ -109,26 +80,17 @@ async function remoteScans(localIds: Set<string>): Promise<ScanMeta[]> {
         refreshing = null;
       });
   }
-  return [...remote.values()].filter((r) => !localIds.has(r.meta.id)).map((r) => r.meta);
+  return [...remote.values()].filter((meta) => !localIds.has(meta.id));
 }
 
-/** Save to Supabase. A new scan is inserted directly; a re-run replaces its row by uuid. */
-async function upsertScan(meta: ScanMeta, collection: unknown, isNew: boolean) {
-  const index = await loadIndex();
-  const body = JSON.stringify({ json: { meta, scan: collection } });
-  const known = isNew ? undefined : Object.keys(index).find((rowId) => index[rowId] === meta.id);
-  if (known) {
-    await supabase(`scans?id=eq.${known}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body });
-    return;
-  }
-  const [row] = await supabase<{ id: string }[]>("scans?select=id", {
+/** Insert the scan, or replace the row holding its scan id. Same as supabase-store.js. */
+async function upsertScan(meta: ScanMeta, collection: unknown) {
+  await supabase("scans?on_conflict=scan_id", {
     method: "POST",
-    headers: { Prefer: "return=representation" },
-    body,
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ json: { meta, scan: collection } }),
   });
-  index[row.id] = meta.id;
-  remote.set(meta.id, { rowId: row.id, meta });
-  await saveIndex();
+  remote.set(meta.id, meta);
 }
 
 type DetectedFeature = {
@@ -167,7 +129,7 @@ async function withCounts(meta: ScanMeta): Promise<ScanMeta> {
 /** Local scan files, plus any scan in Supabase that isn't on disk. */
 export async function listScans(): Promise<ScanMeta[]> {
   const local = await listLocalScans();
-  const extra = await remoteScans(new Set(local.map((m) => m.id)));
+  const extra = remoteScans(new Set(local.map((m) => m.id)));
   return [...local, ...extra].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
@@ -205,10 +167,9 @@ export async function readScan(id: string): Promise<string | null> {
   } catch {
     // Not on disk: fall through to Supabase.
   }
-  const row = remote.get(id);
-  if (!supabaseEnabled || !row) return null;
+  if (!supabaseEnabled) return null;
   try {
-    const rows = await supabase<{ scan: unknown }[]>(`scans?select=scan:json->scan&id=eq.${row.rowId}`);
+    const rows = await supabase<{ scan: unknown }[]>(`scans?select=scan:json->scan&scan_id=eq.${id}`);
     return rows[0]?.scan ? JSON.stringify(rows[0].scan) : null;
   } catch (error) {
     console.error(`readScan ${id}: Supabase unavailable (${(error as Error).message})`);
@@ -252,6 +213,7 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
     costUsd += p.predictedCostUsd ?? p.healthcareUsd ?? 0;
     if (p.source === "osm") osmMatched += 1;
   }
+  const clinic = tourClinicOf(collection);
   // The random tail keeps ids unique when several computers save in the same millisecond.
   const id = `${request.countryId}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const { south, west, north, east } = request;
@@ -271,9 +233,11 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
     osmMatched,
     ...settlementCounts(collection.features),
     // Matches TOUR_VERSION in scan-batch.js.
-    tourVersion: collection.tour !== undefined ? 4 : undefined,
+    tourVersion: collection.tour !== undefined ? 5 : undefined,
     tourCostUsd: collection.tour?.costUsd ?? null,
     tourStops: collection.tour?.stops ?? 0,
+    tourClinicId: clinic ? String(clinic.osmId) : null,
+    tourClinicName: clinic?.name ?? null,
   };
   // Local copy. Best effort: on Vercel the app folder is read-only and Supabase is the store.
   let savedLocally = false;
@@ -290,7 +254,7 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
   // retried later with `node scan-batch.js --sync`; without one, the scan would be lost.
   if (supabaseEnabled) {
     try {
-      await upsertScan(meta, collection, true);
+      await upsertScan(meta, collection);
     } catch (error) {
       if (!savedLocally) throw new Error(`the scan finished but couldn't be saved (${(error as Error).message})`);
       console.error(`runAndSaveScan ${id}: Supabase upload failed (${(error as Error).message})`);
@@ -298,5 +262,82 @@ export async function runAndSaveScan(request: ScanRequest): Promise<ScanMeta> {
   } else if (!savedLocally) {
     throw new Error("the scan finished but there is nowhere to save it (no Supabase keys, read-only disk)");
   }
+  // Re-plan this clinic's joined tour once the response is sent, so the user isn't kept waiting.
+  after(() => refreshClinicTour(collection));
   return meta;
+}
+
+// ---- Joined clinic tours ----
+
+/** Every scan (local and remote) whose tour starts at this clinic, with its full data. */
+async function scansForClinic(clinicId: string) {
+  const local = await listLocalScans();
+  const localIds = new Set(local.map((m) => m.id));
+  const metas = [...local, ...remoteScans(localIds)];
+  const found: { meta: ScanMeta; collection: unknown }[] = [];
+  for (const meta of metas) {
+    let collection: unknown = null;
+    if (meta.tourClinicId === undefined) {
+      // Older scans don't record their clinic: read it from the scan itself.
+      const text = await readScan(meta.id);
+      collection = text ? JSON.parse(text) : null;
+      const clinic = tourClinicOf(collection);
+      if (!clinic || String(clinic.osmId) !== clinicId) continue;
+    } else if (meta.tourClinicId !== clinicId) {
+      continue;
+    }
+    if (!collection) {
+      const text = await readScan(meta.id);
+      if (!text) continue;
+      collection = JSON.parse(text);
+    }
+    found.push({ meta, collection });
+  }
+  return found;
+}
+
+/** Re-plan and save the joined tour of the clinic this scan's tour starts from. */
+async function refreshClinicTour(collection: unknown) {
+  const clinic = tourClinicOf(collection);
+  if (!clinic) return;
+  const clinicId = String(clinic.osmId);
+  try {
+    const record = (await buildClinicTour(clinic, await scansForClinic(clinicId))) as ClinicTourRecord | null;
+    if (!record) return;
+    try {
+      await mkdir(TOURS_DIR, { recursive: true });
+      await writeAtomic(path.join(TOURS_DIR, `${clinicId}.json`), JSON.stringify(record));
+    } catch {
+      // Read-only disk (Vercel): Supabase holds it.
+    }
+    if (supabaseEnabled) {
+      await supabase("clinic_tours?on_conflict=clinic_id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ clinic_id: clinicId, summary: record.summary, tour: record.tour }),
+      });
+    }
+  } catch (error) {
+    console.error(`clinic tour ${clinicId}: ${(error as Error).message}`);
+  }
+}
+
+/** A joined clinic tour: local file first, then Supabase. Null when there is none. */
+export async function readClinicTour(clinicId: string): Promise<ClinicTourRecord | null> {
+  if (!/^\d+$/.test(clinicId)) return null;
+  try {
+    return JSON.parse(await readFile(path.join(TOURS_DIR, `${clinicId}.json`), "utf8")) as ClinicTourRecord;
+  } catch {
+    // Not on disk: try Supabase.
+  }
+  if (!supabaseEnabled) return null;
+  try {
+    const rows = await supabase<{ summary: ClinicTourRecord["summary"]; tour: ClinicTourRecord["tour"] }[]>(
+      `clinic_tours?select=summary,tour&clinic_id=eq.${clinicId}`,
+    );
+    return rows[0] ? { clinicId, summary: rows[0].summary, tour: rows[0].tour } : null;
+  } catch {
+    // Table not created yet, or Supabase unavailable.
+    return null;
+  }
 }

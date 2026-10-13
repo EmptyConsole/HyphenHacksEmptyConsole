@@ -30,6 +30,8 @@ import {
   type AreaCollection,
   type AreaFeature,
   type AreaProperties,
+  type ClinicTourRecord,
+  type ClinicTourSummary,
   type ScanMeta,
   type TourSummary,
   type VillageLayer,
@@ -63,6 +65,7 @@ import {
   confidenceLabel,
   confidenceLevel,
   explainScanLocation,
+  explainClinicTour,
   explainStat,
   explainTour,
   explainVillage,
@@ -343,6 +346,12 @@ export default function ExplorerMap() {
   );
   const [parentProps, setParentProps] = useState<AreaProperties | null>(null);
   const [selected, setSelected] = useState<AreaProperties | null>(null);
+  /** A clicked clinic marker and its joined tour (null tour: it has none; undefined: loading). */
+  const [clinicCard, setClinicCard] = useState<{
+    id: string;
+    name: string;
+    tour?: ClinicTourSummary | null;
+  } | null>(null);
   const [hover, setHover] = useState<Hover>(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [scans, setScans] = useState<ScanMeta[]>([]);
@@ -389,6 +398,7 @@ export default function ExplorerMap() {
   const drillInto = useCallback((feature: AreaFeature) => {
     setHover(null);
     setExplain(null);
+    setClinicCard(null);
     helpScanRef.current = false;
     if (trailRef.current.length < 2) {
       setSelected(null);
@@ -404,11 +414,31 @@ export default function ExplorerMap() {
 
   const closeSelected = useCallback(() => {
     setSelected(null);
+    setClinicCard(null);
     setExplain(null);
   }, []);
 
+  /** Open a clinic's card and load the joined tour it starts. */
+  const openClinic = useCallback(async (id: string, name: string) => {
+    setSelected(null);
+    setExplain(null);
+    setClinicCard({ id, name });
+    const response = await fetch(`/api/tours/${encodeURIComponent(id)}`).catch(() => null);
+    const record = response?.ok ? ((await response.json()) as ClinicTourRecord) : null;
+    setClinicCard((card) => (card?.id === id ? { id, name, tour: record?.summary ?? null } : card));
+  }, []);
+
+  // The map's click handlers are registered once, so they read these refs for current values.
+  const clinicCardRef = useRef(clinicCard);
+  const openClinicRef = useRef(openClinic);
+  useEffect(() => {
+    clinicCardRef.current = clinicCard;
+    openClinicRef.current = openClinic;
+  }, [clinicCard, openClinic]);
+
   const goTo = useCallback((depth: number) => {
     setSelected(null);
+    setClinicCard(null);
     setExplain(null);
     setTrail((t) => t.slice(0, depth));
   }, []);
@@ -687,6 +717,11 @@ export default function ExplorerMap() {
       map.on("mouseleave", "areas-fill", leave);
       map.on("mouseleave", "dots-hit", leave);
       map.on("mouseleave", "clinics-core", leave);
+      // A clinic opens its card: the one tour it runs through every scan it's nearest to.
+      map.on("click", "clinics-core", (e) => {
+        const f = e.features?.[0];
+        if (f) openClinicRef.current(String(f.properties.id), String(f.properties.name));
+      });
 
       // Rendered features are tile-clipped; always drill into the full original geometry.
       map.on("click", "areas-fill", (e) => {
@@ -890,7 +925,7 @@ export default function ExplorerMap() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       // A selected settlement closes first; the next Esc goes up a level.
-      if (selectedRef.current) closeSelected();
+      if (selectedRef.current || clinicCardRef.current) closeSelected();
       else if (trailRef.current.length > 0) goTo(trailRef.current.length - 1);
     };
     window.addEventListener("keydown", onKey);
@@ -1110,7 +1145,15 @@ export default function ExplorerMap() {
           ))}
         </nav>
 
-        {selected ? (
+        {clinicCard && !selected ? (
+          <ClinicCard
+            card={clinicCard}
+            backLabel={parentProps?.name ?? "area"}
+            open={explain}
+            onToggle={toggleExplain}
+            onClose={closeSelected}
+          />
+        ) : selected ? (
           <SettlementCard
             props={selected}
             tour={extras?.tour?.summary ?? null}
@@ -1202,9 +1245,16 @@ export default function ExplorerMap() {
                 aria-expanded={explain === "stat:tour"}
                 onClick={() => toggleExplain("stat:tour")}
               >
-                <strong>Team tour</strong>
+                <strong>
+                  {extras.tour.summary.joined
+                    ? extras.tour.summary.depotName
+                      ? `${extras.tour.summary.depotName}'s tour`
+                      : "Nearest clinic's tour"
+                    : "Team tour"}
+                </strong>
                 {formatCost(extras.tour.summary.costUsd)} travel for{" "}
                 {extras.tour.summary.stops} stops
+                {extras.tour.summary.joined && ` · ${extras.tour.summary.joined.scanCount} scan areas`}
               </button>
             )}
             {explain === "stat:tour" && extras?.tour && (
@@ -1436,6 +1486,63 @@ function VillageSummary({ props }: { props: AreaProperties }) {
         </div>
       )}
     </dl>
+  );
+}
+
+/** A clicked clinic, at the top of the panel: the one tour it runs through every scan it serves. */
+function ClinicCard({
+  card,
+  backLabel,
+  open,
+  onToggle,
+  onClose,
+}: {
+  card: { id: string; name: string; tour?: ClinicTourSummary | null };
+  backLabel: string;
+  open: string | null;
+  onToggle: (key: string) => void;
+  onClose: () => void;
+}) {
+  const t = card.tour;
+  return (
+    <div className={styles.card}>
+      <button className={styles.back} onClick={onClose}>
+        ← {backLabel}
+      </button>
+      <div>
+        <p className="eyebrow">Clinic</p>
+        <h3 className={styles.title}>{card.name}</h3>
+      </div>
+      {t === undefined ? (
+        <p className={styles.hint}>Loading its tour…</p>
+      ) : t === null ? (
+        <p className={styles.hint}>No tour starts here yet. It gets one when a scan nearby is saved.</p>
+      ) : (
+        <>
+          <div className={styles.details}>
+            {(
+              [
+                ["Scan areas", String(t.scanCount)],
+                ["Stops", String(t.stops)],
+                ["Travel", formatCost(t.costUsd)],
+                ["Distance", `${((t.roadMeters + t.offroadMeters) / 1000).toFixed(1)} km`],
+              ] as const
+            ).map(([label, value]) => (
+              <button
+                key={label}
+                className={styles.detailRow}
+                aria-expanded={open === "clinic:tour"}
+                onClick={() => onToggle("clinic:tour")}
+              >
+                <span>{label}</span>
+                <span>{value}</span>
+              </button>
+            ))}
+          </div>
+          {open === "clinic:tour" && <ExplainBox explanation={explainClinicTour(t)} />}
+        </>
+      )}
+    </div>
   );
 }
 
