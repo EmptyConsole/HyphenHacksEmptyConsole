@@ -684,9 +684,17 @@ export default function ExplorerMap() {
       map.on("mousemove", "areas-fill", (e) =>
         hoverArea(e, e.features?.[0]?.id),
       );
+      // Hovering a scan's dot starts loading it, so it's usually ready by the click.
+      // getVillages caches, so hovering again costs nothing.
+      const preload = (areaId: string) => {
+        if (!areaId.startsWith("scan:")) return;
+        const feature = collectionRef.current?.features.find((f) => f.properties.id === areaId);
+        if (feature) dataProvider.getVillages(feature).catch(() => {});
+      };
       map.on("mousemove", "dots-hit", (e) => {
         const raw = e.features?.[0]?.properties;
         const scanId = raw?.scanId ? String(raw.scanId) : "";
+        preload(scanId ? `scan:${scanId}` : String(raw?.areaId ?? ""));
         if (scanId) {
           const scan = scansRef.current.find((s) => s.id === scanId);
           if (!scan) return;
@@ -783,6 +791,7 @@ export default function ExplorerMap() {
       await new Promise((r) => setTimeout(r, 30));
       let fc: AreaCollection;
       let layer: Omit<VillageLayer, "areas"> | null = null;
+      let joined: VillageLayer["joined"];
       // The trail holds features from when they were clicked; look up current numbers.
       let fresh: AreaProperties | null = null;
       try {
@@ -798,6 +807,7 @@ export default function ExplorerMap() {
           const villages = await dataProvider.getVillages(trail[1]);
           fc = villages.areas;
           layer = { routes: villages.routes, clinics: villages.clinics, tour: villages.tour };
+          joined = villages.joined;
           fresh =
             (await dataProvider.getRegions(trail[0])).features.find(
               (f) => f.properties.id === parent.properties.id,
@@ -837,6 +847,29 @@ export default function ExplorerMap() {
       (map.getSource("tour") as GeoJSONSource).setData(
         layer?.tour?.line ?? EMPTY,
       );
+      // The clinic's joined tour loads alongside the scan; draw it as soon as it arrives.
+      joined?.then((update) => {
+        if (cancelled || !update || !mapRef.current) return;
+        const withStops: AreaCollection = {
+          ...fc,
+          features: fc.features.map((f) => ({
+            ...f,
+            properties: { ...f.properties, tour_stop: update.stops[f.properties.id] },
+          })),
+        };
+        collectionRef.current = withStops;
+        setCollection(withStops);
+        setSelected((s) => (s ? { ...s, tour_stop: update.stops[s.id] } : s));
+        (map.getSource("areas") as GeoJSONSource).setData(withIntensity(withStops));
+        (map.getSource("tour") as GeoJSONSource).setData(update.tour.line);
+        if (layer) {
+          const clinics = update.clinic
+            ? { ...layer.clinics, features: [...layer.clinics.features, update.clinic] }
+            : layer.clinics;
+          (map.getSource("clinics") as GeoJSONSource).setData(clinics);
+          setExtras({ ...layer, tour: update.tour, clinics });
+        }
+      });
 
       if (level === 0 && peekAutoscanOnLoad() && !pendingFly.current) {
         const target = pickUnscannedArea(fc.features, currentScans);

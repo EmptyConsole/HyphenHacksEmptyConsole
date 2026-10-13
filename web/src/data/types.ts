@@ -128,6 +128,20 @@ export interface VillageLayer {
   clinics: ClinicCollection;
   /** Null for filler areas and for scans made before tours existed. */
   tour: TourLayer | null;
+  /**
+   * The clinic's joined tour through several scans, when there is one. It loads alongside
+   * the scan, and the map draws the settlements first and the joined tour when it arrives.
+   */
+  joined?: Promise<JoinedTourUpdate | null>;
+}
+
+/** What changes when a scan's joined clinic tour arrives. */
+export interface JoinedTourUpdate {
+  tour: TourLayer;
+  /** Settlement id → stop number on the joined tour. */
+  stops: Record<string, number>;
+  /** The clinic's marker, when it isn't already drawn (it can be far outside the scan). */
+  clinic: ClinicCollection["features"][number] | null;
 }
 
 /** One saved run of detect-villages.js. Mirrors `<id>.meta.json`. */

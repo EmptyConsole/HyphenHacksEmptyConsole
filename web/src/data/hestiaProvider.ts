@@ -11,6 +11,7 @@ import type {
   RouteCollection,
   ScanMeta,
   ClinicTourRecord,
+  JoinedTourUpdate,
   ScanRequest,
   TourLayer,
   VillageLayer,
@@ -161,6 +162,11 @@ function scanRegions(country: AreaFeature): AreaCollection {
 }
 
 async function scanVillages(scanId: string): Promise<VillageLayer> {
+  // The scan list already says which clinic this scan's tour starts from, so its joined tour
+  // can load at the same time as the scan. Older scans don't record it and have no joined tour.
+  const meta = scans.find((m) => m.id === scanId);
+  const joinedRecord = meta?.tourClinicId ? joinedTour(meta.tourClinicId) : null;
+  joinedRecord?.catch(() => null);
   const response = await fetch(`/api/scans/${encodeURIComponent(scanId)}`);
   if (!response.ok) throw new Error(`scan ${scanId}: ${response.status}`);
   const detected = (await response.json()) as { features: DetectedVillage[]; tour?: DetectedTour | null };
@@ -232,23 +238,35 @@ async function scanVillages(scanId: string): Promise<VillageLayer> {
     }
   });
   // A scan whose clinic serves other scans too shows that clinic's joined tour instead.
-  const meta = scans.find((m) => m.id === scanId);
-  const clinicId = meta?.tourClinicId ?? (tour?.depot.osmId != null ? String(tour.depot.osmId) : null);
-  const joined = tour && clinicId ? await joinedTour(clinicId) : null;
-  if (joined && clinicId && joined.summary.scanCount > 1) {
-    const position = new Map(joined.tour.order.map((stop, i) => [`${stop.scanId}/${stop.index + 1}`, i + 1]));
-    for (const area of areas.features) area.properties.tour_stop = position.get(area.properties.id);
-    // The clinic can be far outside this scan: make sure its marker is drawn.
-    if (!clinicIds.has(clinicId)) {
-      clinics.features.push({
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [joined.summary.lon, joined.summary.lat] },
-        properties: { id: clinicId, name: joined.summary.clinicName ?? "Unnamed clinic" },
-      });
-    }
-    return { areas, routes, clinics, tour: joinedTourLayer(joined, tour?.minCertainty ?? 30) };
-  }
-  return { areas, routes, clinics, tour: tour ? tourLayer(tour, detected.features) : null };
+  // It arrives separately, so the settlements can be drawn without waiting for it.
+  const clinicId = meta?.tourClinicId ?? null;
+  const joined =
+    tour && clinicId && joinedRecord
+      ? joinedRecord
+          .then((record): JoinedTourUpdate | null => {
+            if (!record || record.summary.scanCount <= 1) return null;
+            const position = new Map(record.tour.order.map((stop, i) => [`${stop.scanId}/${stop.index + 1}`, i + 1]));
+            const stops: Record<string, number> = {};
+            for (const area of areas.features) {
+              const n = position.get(area.properties.id);
+              if (n !== undefined) stops[area.properties.id] = n;
+            }
+            return {
+              tour: joinedTourLayer(record, tour.minCertainty ?? 30),
+              stops,
+              // The clinic can be far outside this scan: make sure its marker is drawn.
+              clinic: clinicIds.has(clinicId)
+                ? null
+                : {
+                    type: "Feature",
+                    geometry: { type: "Point", coordinates: [record.summary.lon, record.summary.lat] },
+                    properties: { id: clinicId, name: record.summary.clinicName ?? "Unnamed clinic" },
+                  },
+            };
+          })
+          .catch(() => null)
+      : undefined;
+  return { areas, routes, clinics, tour: tour ? tourLayer(tour, detected.features) : null, joined };
 }
 
 /** A clinic's joined tour (null when it has none). */

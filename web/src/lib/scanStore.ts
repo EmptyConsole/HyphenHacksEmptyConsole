@@ -304,6 +304,7 @@ async function refreshClinicTour(collection: unknown) {
   try {
     const record = (await buildClinicTour(clinic, await scansForClinic(clinicId))) as ClinicTourRecord | null;
     if (!record) return;
+    tourCache.set(clinicId, { at: Date.now(), record });
     try {
       await mkdir(TOURS_DIR, { recursive: true });
       await writeAtomic(path.join(TOURS_DIR, `${clinicId}.json`), JSON.stringify(record));
@@ -322,22 +323,39 @@ async function refreshClinicTour(collection: unknown) {
   }
 }
 
+/** Recent tour lookups (including "none"), so clicking around doesn't ask Supabase each time. */
+const TOUR_CACHE_MS = 60 * 1000;
+const tourCache = new Map<string, { at: number; record: ClinicTourRecord | null }>();
+/** When the clinic_tours table was last found missing; skip Supabase for a minute after. */
+let tourTableMissingAt = 0;
+
 /** A joined clinic tour: local file first, then Supabase. Null when there is none. */
 export async function readClinicTour(clinicId: string): Promise<ClinicTourRecord | null> {
   if (!/^\d+$/.test(clinicId)) return null;
+  const cached = tourCache.get(clinicId);
+  if (cached && Date.now() - cached.at < TOUR_CACHE_MS) return cached.record;
+  const record = await lookUpClinicTour(clinicId);
+  tourCache.set(clinicId, { at: Date.now(), record });
+  return record;
+}
+
+async function lookUpClinicTour(clinicId: string): Promise<ClinicTourRecord | null> {
   try {
     return JSON.parse(await readFile(path.join(TOURS_DIR, `${clinicId}.json`), "utf8")) as ClinicTourRecord;
   } catch {
     // Not on disk: try Supabase.
   }
-  if (!supabaseEnabled) return null;
+  if (!supabaseEnabled || Date.now() - tourTableMissingAt < TOUR_CACHE_MS) return null;
   try {
     const rows = await supabase<{ summary: ClinicTourRecord["summary"]; tour: ClinicTourRecord["tour"] }[]>(
       `clinic_tours?select=summary,tour&clinic_id=eq.${clinicId}`,
+      {},
+      5_000,
     );
     return rows[0] ? { clinicId, summary: rows[0].summary, tour: rows[0].tour } : null;
-  } catch {
-    // Table not created yet, or Supabase unavailable.
+  } catch (error) {
+    // Table not created yet (run supabase-tours.sql), or Supabase unavailable.
+    if (/404|42P01|does not exist|schema cache/i.test((error as Error).message)) tourTableMissingAt = Date.now();
     return null;
   }
 }
