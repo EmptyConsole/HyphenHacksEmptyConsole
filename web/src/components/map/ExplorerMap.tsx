@@ -1212,6 +1212,9 @@ export default function ExplorerMap() {
         }
       : null;
 
+  // A clicked clinic takes over the whole panel (a settlement card wins if both are set).
+  const showingClinic = !!clinicCard && !selected;
+
   const panelContext: PanelContext = {
     level,
     parent: parentProps,
@@ -1236,27 +1239,30 @@ export default function ExplorerMap() {
           >
             World
           </button>
-          {trail.map((f, i) => (
+          {/* With a clinic open, the facility replaces the scan in the trail. */}
+          {(showingClinic ? trail.slice(0, 1) : trail).map((f, i) => (
             <span key={f.properties.id}>
               <span aria-hidden="true">/</span>
               <button
                 onClick={() => goTo(i + 1)}
-                data-current={level === i + 1 || undefined}
+                data-current={(!showingClinic && level === i + 1) || undefined}
               >
                 {f.properties.name}
               </button>
             </span>
           ))}
+          {showingClinic && (
+            <span>
+              <span aria-hidden="true">/</span>
+              <button data-current aria-current="page">
+                {clinicCard.name}
+              </button>
+            </span>
+          )}
         </nav>
 
-        {clinicCard && !selected ? (
-          <ClinicCard
-            card={clinicCard}
-            backLabel={parentProps?.name ?? "area"}
-            open={explain}
-            onToggle={toggleExplain}
-            onClose={closeSelected}
-          />
+        {showingClinic ? (
+          <ClinicCard card={clinicCard} open={explain} onToggle={toggleExplain} />
         ) : selected ? (
           <SettlementCard
             props={selected}
@@ -1368,7 +1374,7 @@ export default function ExplorerMap() {
         )}
 
         {/* A clinic's panel is only about the clinic; the scan's download comes back with the scan. */}
-        {!(clinicCard && !selected) && <DownloadBox view={exportView} />}
+        {!showingClinic && <DownloadBox view={exportView} />}
 
         <div className={styles.legendBox}>
           <button
@@ -1434,8 +1440,12 @@ export default function ExplorerMap() {
         </div>
 
         <p className={styles.hint}>
-          {loading ? "Loading…" : hint}
-          {level > 0 && !loading && <> Esc goes back.</>}
+          {loading
+            ? "Loading…"
+            : showingClinic
+              ? "Click a settlement or another clinic for details. Esc closes the clinic."
+              : hint}
+          {level > 0 && !loading && !showingClinic && <> Esc goes back.</>}
         </p>
       </aside>
 
@@ -1597,23 +1607,16 @@ function VillageSummary({ props }: { props: AreaProperties }) {
 /** A clicked clinic, at the top of the panel: the one tour it runs through every scan it serves. */
 function ClinicCard({
   card,
-  backLabel,
   open,
   onToggle,
-  onClose,
 }: {
   card: { id: string; name: string; tour?: ClinicTourSummary | null };
-  backLabel: string;
   open: string | null;
   onToggle: (key: string) => void;
-  onClose: () => void;
 }) {
   const t = card.tour;
   return (
     <div className={styles.card}>
-      <button className={styles.back} onClick={onClose}>
-        ← {backLabel}
-      </button>
       <div>
         <p className="eyebrow">Clinic</p>
         <h3 className={styles.title}>{card.name}</h3>
