@@ -61,7 +61,8 @@ const BUSY_RETRY_MS = 45000;
 // Longest wait after failures in a row, before trying the next grid cell.
 const MAX_BACKOFF_MS = 10 * 60 * 1000;
 // A box that takes longer than this is abandoned.
-const RUN_TIMEOUT_MS = 8 * 60 * 1000;
+// Overpass can be slow, and one box makes several queries (places, clinics, roads).
+const RUN_TIMEOUT_MS = 20 * 60 * 1000;
 const OVERPASS_SERVERS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
@@ -241,7 +242,11 @@ function runDetector(bbox) {
     );
     let stdout = "";
     let stderr = "";
-    const timer = setTimeout(() => child.kill("SIGKILL"), RUN_TIMEOUT_MS);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, RUN_TIMEOUT_MS);
     child.stdout.on("data", (chunk) => (stdout += chunk));
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
@@ -251,6 +256,10 @@ function runDetector(bbox) {
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      if (timedOut) {
+        const lastStep = stderr.trim().split("\n").pop() ?? "";
+        return reject(new Error(`timed out after ${RUN_TIMEOUT_MS / 60000} min (last step: ${lastStep.trim()})`));
+      }
       if (code !== 0) return reject(new Error(stderr.trim().split("\n").pop() || `exit ${code}`));
       try {
         resolve({ collection: JSON.parse(stdout), stderr });

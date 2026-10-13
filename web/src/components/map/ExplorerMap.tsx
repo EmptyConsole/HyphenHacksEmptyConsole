@@ -781,7 +781,7 @@ export default function ExplorerMap() {
   // ---- Load data for the current level; move the camera only when the level changes ----
   useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map) return;
+    if (!ready || !map || !map.getSource("areas")) return;
     let cancelled = false;
     const parent = trail[trail.length - 1];
 
@@ -819,6 +819,9 @@ export default function ExplorerMap() {
         return;
       }
       if (cancelled) return;
+      // After a hot reload the map is rebuilt; this load belongs to the old one, or the new
+      // one hasn't added its layers yet. It runs again once the new map is ready.
+      if (mapRef.current !== map || !map.getSource("areas")) return;
 
       const currentScans = dataProvider.getScans();
       scansRef.current = currentScans;
@@ -917,7 +920,7 @@ export default function ExplorerMap() {
   const showTour = !!extras?.tour;
   useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map) return;
+    if (!ready || !map || !map.getSource("areas")) return;
     const visible = (on: boolean) => (on ? "visible" : "none");
     for (const id of ["tour-casing", "tour-line"]) map.setLayoutProperty(id, "visibility", visible(showTour));
     for (const id of ["routes-road", "routes-offroad", "routes-active"]) {
@@ -928,7 +931,7 @@ export default function ExplorerMap() {
   // ---- Selected village highlight and its route ----
   useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map) return;
+    if (!ready || !map || !map.getSource("areas")) return;
     const routeFor =
       selected?.id ??
       (hover?.kind === "area" && hover.props.level === "village"

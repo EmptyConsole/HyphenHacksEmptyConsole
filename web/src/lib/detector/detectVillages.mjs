@@ -89,9 +89,22 @@ const ESRI =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile";
 // Public OSM query services. The second is used when the first is busy.
 const OVERPASS_SERVERS = [
-  "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
+  // The main server. Its /api/status page says when this connection's next slot frees up.
+  { url: "https://overpass-api.de/api", status: true },
+  // Public mirrors, each with its own limits. Any of them can be down; the client moves on.
+  { url: "https://overpass.kumi.systems/api", status: false },
+  { url: "https://overpass.private.coffee/api", status: false },
+  { url: "https://maps.mail.ru/osm/tools/overpass/api", status: false },
+  { url: "https://overpass.osm.jp/api", status: false },
 ];
+// Overpass rejects generic clients (curl's default gets 406), so always say who we are.
+const OVERPASS_USER_AGENT = "village-polygon-detector/1.0";
+// A query is given this long before the server is treated as stuck. Road queries can be big.
+const OVERPASS_REQUEST_MS = 200 * 1000;
+// Total tries across all servers before a query gives up.
+const OVERPASS_ATTEMPTS = 10;
+// Longest a server rests after failing before it's tried again.
+const OVERPASS_MAX_COOLDOWN_MS = 5 * 60 * 1000;
 // How far outside the village box to look for a clinic, widening until one is found.
 // 0.36° is about 40 km; remote villages are often 20–50 km from the nearest facility.
 // The last step (~660 km) covers any country, so every scan gets a clinic.
@@ -764,30 +777,93 @@ function satelliteCertainty(buildings, compactness, roofShare) {
 }
 
 // Ask Overpass for JSON. Alternates servers because the public ones often answer "too busy".
+// When each server can be tried again, and how many times in a row it has failed.
+const overpassCooldown = new Map();
+const overpassFailures = new Map();
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Seconds until this connection gets a free slot on a server with a status page:
+// 0 when a slot is free now, a number when it says "in N seconds", null when it can't tell.
+async function overpassSlotWait(server) {
+  try {
+    const response = await fetch(`${server.url}/status`, {
+      headers: { "User-Agent": OVERPASS_USER_AGENT },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const text = await response.text();
+    if (/\d+ slots? available now/.test(text)) return 0;
+    const waits = [...text.matchAll(/in (-?\d+) seconds/g)].map((m) => Math.max(0, Number(m[1])));
+    return waits.length ? Math.min(...waits) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Rest a failing server: as long as its status page says, else longer after each failure.
+async function coolDown(server) {
+  const failures = (overpassFailures.get(server.url) ?? 0) + 1;
+  overpassFailures.set(server.url, failures);
+  let ms = Math.min(15_000 * 2 ** (failures - 1), OVERPASS_MAX_COOLDOWN_MS);
+  if (server.status) {
+    const wait = await overpassSlotWait(server);
+    if (wait !== null) ms = Math.min(Math.max(wait * 1000, 5_000), OVERPASS_MAX_COOLDOWN_MS);
+  }
+  overpassCooldown.set(server.url, Date.now() + ms);
+  console.error(`overpass: ${new URL(server.url).host} busy, resting ${Math.round(ms / 1000)}s`);
+}
+
+// The server to try next: the first one not resting, or else the one that rests the least.
+function nextServer() {
+  const now = Date.now();
+  const ready = OVERPASS_SERVERS.find((server) => (overpassCooldown.get(server.url) ?? 0) <= now);
+  if (ready) return { server: ready, waitMs: 0 };
+  const soonest = OVERPASS_SERVERS.reduce((a, b) =>
+    (overpassCooldown.get(a.url) ?? 0) <= (overpassCooldown.get(b.url) ?? 0) ? a : b,
+  );
+  return { server: soonest, waitMs: (overpassCooldown.get(soonest.url) ?? 0) - now };
+}
+
+// Ask Overpass for JSON, spreading the load over several public servers. A busy server
+// rests (for as long as its status page says, when it has one) while the others are tried.
 async function fetchOverpass(query) {
-  let lastError;
-  const attempts = OVERPASS_SERVERS.length * 2;
-  for (let attempt = 0; attempt < attempts; attempt++) {
+  let lastError = new Error("Overpass is busy or returned an error");
+  for (let attempt = 0; attempt < OVERPASS_ATTEMPTS; attempt++) {
+    const { server, waitMs } = nextServer();
+    if (waitMs > 0) await sleep(waitMs);
+    // The main server tells us when a slot frees up: wait for it instead of being refused.
+    if (server.status) {
+      const wait = await overpassSlotWait(server);
+      if (wait && wait > 60) {
+        overpassCooldown.set(server.url, Date.now() + wait * 1000);
+        console.error(`overpass: ${new URL(server.url).host} has no free slot for ${wait}s, trying a mirror`);
+        continue;
+      }
+      if (wait) {
+        console.error(`overpass: waiting ${wait}s for a free slot on ${new URL(server.url).host}`);
+        await sleep(wait * 1000 + 500);
+      }
+    }
     try {
-      const response = await fetch(OVERPASS_SERVERS[attempt % OVERPASS_SERVERS.length], {
+      const response = await fetch(`${server.url}/interpreter`, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "village-polygon-detector/1.0",
+          "User-Agent": OVERPASS_USER_AGENT,
         },
         body: new URLSearchParams({ data: query }),
+        signal: AbortSignal.timeout(OVERPASS_REQUEST_MS),
       });
       const text = await response.text();
       // A busy Overpass returns an HTML error page instead of JSON.
       if (!response.ok || text[0] !== "{") {
-        throw new Error("Overpass is busy or returned an error");
+        throw new Error(`Overpass is busy or returned an error (${new URL(server.url).host} ${response.status})`);
       }
+      overpassFailures.delete(server.url);
       return JSON.parse(text).elements || [];
     } catch (error) {
-      lastError = error;
-      if (attempt < attempts - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-      }
+      lastError = /Overpass/.test(error.message) ? error : new Error(`Overpass is busy or returned an error (${error.message})`);
+      await coolDown(server);
     }
   }
   throw lastError;
