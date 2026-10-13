@@ -8,8 +8,7 @@ export const homeContent = {
     lead:
       "In today's world, there are over 1.9 billion people living in rural areas without any healthcare.",
     ctas: [
-      { label: "Donate", href: "/donate", variant: "primary" },
-      { label: "Explore the map", href: "#map", variant: "secondary" },
+      { label: "Explore the map", href: "#map", variant: "primary" },
       { label: "See the algorithm", href: "/algorithm", variant: "secondary" },
     ],
   },
