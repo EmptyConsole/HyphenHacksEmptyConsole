@@ -25,7 +25,7 @@ import {
   point,
   pointOnFeature,
 } from "@turf/turf";
-import type { Feature, Polygon } from "geojson";
+import type { Feature, Point, Polygon } from "geojson";
 import {
   dataProvider,
   type AreaCollection,
@@ -66,6 +66,7 @@ import {
   confidenceLabel,
   confidenceLevel,
   explainScanLocation,
+  explainClinicLocation,
   explainClinicTour,
   explainStat,
   explainTour,
@@ -185,6 +186,9 @@ function areaLineColor(theme: MapTheme): ExpressionSpecification {
     MAP_THEMES[theme].modeledLine,
   ];
 }
+
+/** A clicked clinic: where it is, and its joined tour (undefined while loading, null if none). */
+type ClinicCardState = { id: string; name: string; lon: number; lat: number; tour?: ClinicTourSummary | null };
 
 type Hover =
   | {
@@ -348,11 +352,7 @@ export default function ExplorerMap() {
   const [parentProps, setParentProps] = useState<AreaProperties | null>(null);
   const [selected, setSelected] = useState<AreaProperties | null>(null);
   /** A clicked clinic marker and its joined tour (null tour: it has none; undefined: loading). */
-  const [clinicCard, setClinicCard] = useState<{
-    id: string;
-    name: string;
-    tour?: ClinicTourSummary | null;
-  } | null>(null);
+  const [clinicCard, setClinicCard] = useState<ClinicCardState | null>(null);
   const [hover, setHover] = useState<Hover>(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [scans, setScans] = useState<ScanMeta[]>([]);
@@ -423,13 +423,13 @@ export default function ExplorerMap() {
   }, []);
 
   /** Open a clinic's card and load the joined tour it starts. */
-  const openClinic = useCallback(async (id: string, name: string) => {
+  const openClinic = useCallback(async (id: string, name: string, lon: number, lat: number) => {
     setSelected(null);
     setExplain(null);
-    setClinicCard({ id, name });
+    setClinicCard({ id, name, lon, lat });
     const response = await fetch(`/api/tours/${encodeURIComponent(id)}`).catch(() => null);
     const record = response?.ok ? ((await response.json()) as ClinicTourRecord) : null;
-    setClinicCard((card) => (card?.id === id ? { id, name, tour: record?.summary ?? null } : card));
+    setClinicCard((card) => (card?.id === id ? { ...card, tour: record?.summary ?? null } : card));
   }, []);
 
   const openScan = useCallback(async (result: ScanMeta) => {
@@ -777,7 +777,8 @@ export default function ExplorerMap() {
 
         const clinic = top("clinics-core");
         if (clinic) {
-          openClinicRef.current(String(clinic.properties.id), String(clinic.properties.name));
+          const [lon, lat] = (clinic.geometry as Point).coordinates;
+          openClinicRef.current(String(clinic.properties.id), String(clinic.properties.name), lon, lat);
           return;
         }
         // Rendered features are tile-clipped; always drill into the full original geometry.
@@ -1610,7 +1611,7 @@ function ClinicCard({
   open,
   onToggle,
 }: {
-  card: { id: string; name: string; tour?: ClinicTourSummary | null };
+  card: ClinicCardState;
   open: string | null;
   onToggle: (key: string) => void;
 }) {
@@ -1620,7 +1621,15 @@ function ClinicCard({
       <div>
         <p className="eyebrow">Clinic</p>
         <h3 className={styles.title}>{card.name}</h3>
+        <button
+          className={styles.coords}
+          aria-expanded={open === "clinic:location"}
+          onClick={() => onToggle("clinic:location")}
+        >
+          {formatLatLon(card.lat, card.lon)}
+        </button>
       </div>
+      {open === "clinic:location" && <ExplainBox explanation={explainClinicLocation(card.lat, card.lon)} />}
       {t === undefined ? (
         <p className={styles.hint}>Loading its tour…</p>
       ) : t === null ? (

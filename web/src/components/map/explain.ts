@@ -263,6 +263,18 @@ export function explainTour(t: TourSummary): Explanation {
   };
 }
 
+/** Where a clinic is. */
+export function explainClinicLocation(lat: number, lon: number): Explanation {
+  return {
+    summary: "Where this health facility is on OpenStreetMap.",
+    rows: [
+      { label: "Latitude", value: lat.toFixed(5) },
+      { label: "Longitude", value: lon.toFixed(5) },
+    ],
+    note: "Facilities drawn as a building use the building's center. Paste the pair into any map app to find it.",
+  };
+}
+
 /** A clinic marker: its joined tour through every scan area it serves. */
 export function explainClinicTour(s: ClinicTourSummary): Explanation {
   return {

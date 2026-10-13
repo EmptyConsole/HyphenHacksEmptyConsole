@@ -30,7 +30,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFile
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { feature } from "topojson-client";
-import { supabaseEnabled, upsertClinicTour, upsertScan } from "./supabase-store.js";
+import { fetchRemoteScan, listRemoteMetas, supabaseEnabled, upsertClinicTour, upsertScan } from "./supabase-store.js";
 import { buildClinicTour, tourClinicOf } from "./web/src/lib/detector/clinicTours.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -298,6 +298,24 @@ async function shareScan(meta, collection) {
     log(`  supabase: ${result} ${meta.id}`);
   } catch (error) {
     log(`  supabase: upload of ${meta.id} failed (${error.message}); run --sync later`);
+  }
+}
+
+// Scans made on other computers or on the website live only in Supabase. Copy this
+// country's ones into the local folder, so re-runs and joined tours include them too.
+async function downloadRemoteScans(countryId) {
+  if (!supabaseEnabled) return;
+  try {
+    const local = new Set(readdirSync(OUT_DIR).filter((f) => f.endsWith(".meta.json")).map((f) => f.replace(".meta.json", "")));
+    const missing = (await listRemoteMetas()).filter((meta) => meta.countryId === countryId && !local.has(meta.id));
+    for (const meta of missing) {
+      const collection = await fetchRemoteScan(meta.id);
+      if (!collection) continue;
+      saveScan(meta, collection);
+      log(`${meta.countryName}: copied ${meta.id} from Supabase`);
+    }
+  } catch (error) {
+    log(`could not copy scans from Supabase (${error.message}); continuing with local ones`);
   }
 }
 
@@ -651,6 +669,7 @@ async function main() {
     return;
   }
 
+  if (grid && !newOnly) await downloadRemoteScans(grid);
   if (!newOnly) await rescanOutdated(deadline, grid, shard);
   if (rescanOld) {
     log("finished re-running outdated scans");

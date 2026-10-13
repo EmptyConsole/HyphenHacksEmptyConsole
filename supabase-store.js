@@ -60,3 +60,24 @@ export async function upsertClinicTour(record) {
   if (!response.ok) throw new Error(`Supabase ${response.status}: ${(await response.text()).slice(0, 200)}`);
   return "saved";
 }
+
+async function select(query) {
+  const response = await fetch(`${URL_BASE}/rest/v1/${query}`, {
+    signal: AbortSignal.timeout(60_000),
+    headers: { apikey: KEY },
+  });
+  if (!response.ok) throw new Error(`Supabase ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  return response.json();
+}
+
+/** Every scan's small summary (the meta column), without the big json. */
+export async function listRemoteMetas() {
+  if (!supabaseEnabled) return [];
+  return (await select("scans?select=meta")).map((row) => row.meta).filter((meta) => meta?.id);
+}
+
+/** One scan's full detector output, or null. */
+export async function fetchRemoteScan(scanId) {
+  const rows = await select(`scans?select=scan:json->scan&scan_id=eq.${encodeURIComponent(scanId)}`);
+  return rows[0]?.scan ?? null;
+}
