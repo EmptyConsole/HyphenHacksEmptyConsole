@@ -21,8 +21,6 @@ import { detectVillages } from "@/lib/detector/detectVillages.mjs";
  */
 
 const SCANS_DIR = path.join(process.cwd(), "data", "scans");
-// Joined clinic tours, one file per clinic: <clinic OSM id>.json.
-const TOURS_DIR = path.join(process.cwd(), "data", "tours");
 // A little under the route's 300 s maxDuration, so the user gets a clear message, not a cut-off.
 const RUN_TIMEOUT_MS = 280 * 1000;
 const ID_PATTERN = /^[0-9a-z-]+$/;
@@ -381,12 +379,6 @@ async function refreshClinicTour(collection: unknown) {
     const record = (await buildClinicTour(clinic, await scansForClinic(clinicId))) as ClinicTourRecord | null;
     if (!record) return;
     tourCache.set(clinicId, { at: Date.now(), record });
-    try {
-      await mkdir(TOURS_DIR, { recursive: true });
-      await writeAtomic(path.join(TOURS_DIR, `${clinicId}.json`), JSON.stringify(record));
-    } catch {
-      // Read-only disk (Vercel): Supabase holds it.
-    }
     if (supabaseEnabled) {
       await supabase("clinic_tours?on_conflict=clinic_id", {
         method: "POST",
@@ -405,7 +397,7 @@ const tourCache = new Map<string, { at: number; record: ClinicTourRecord | null 
 /** When the clinic_tours table was last found missing; skip Supabase for a minute after. */
 let tourTableMissingAt = 0;
 
-/** A joined clinic tour: local file first, then Supabase. Null when there is none. */
+/** A joined clinic tour, from Supabase (never from files). Null when there is none. */
 export async function readClinicTour(clinicId: string): Promise<ClinicTourRecord | null> {
   if (!/^\d+$/.test(clinicId)) return null;
   const cached = tourCache.get(clinicId);
@@ -416,11 +408,6 @@ export async function readClinicTour(clinicId: string): Promise<ClinicTourRecord
 }
 
 async function lookUpClinicTour(clinicId: string): Promise<ClinicTourRecord | null> {
-  try {
-    return JSON.parse(await readFile(path.join(TOURS_DIR, `${clinicId}.json`), "utf8")) as ClinicTourRecord;
-  } catch {
-    // Not on disk: try Supabase.
-  }
   if (!supabaseEnabled || Date.now() - tourTableMissingAt < TOUR_CACHE_MS) return null;
   try {
     const rows = await supabase<{ summary: ClinicTourRecord["summary"]; tour: ClinicTourRecord["tour"] }[]>(

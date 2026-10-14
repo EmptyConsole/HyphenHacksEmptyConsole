@@ -8,3 +8,5 @@ supabase-*.sql
 osm-data/
 # New scans go to Supabase only. Scans already committed stay tracked; new files here are ignored.
 web/data/scans/
+# Clinic tours live in Supabase (public.clinic_tours); scan-batch.js keeps a local copy here.
+web/data/tours/

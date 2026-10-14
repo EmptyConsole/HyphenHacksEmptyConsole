@@ -195,7 +195,7 @@ export interface ClinicTourSummary {
   updatedAt: string;
 }
 
-/** A joined clinic tour, as saved in web/data/tours/<clinicId>.json and Supabase. */
+/** A joined clinic tour, as saved in Supabase (public.clinic_tours). */
 export interface ClinicTourRecord {
   clinicId: string;
   summary: ClinicTourSummary;
