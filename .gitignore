@@ -6,3 +6,5 @@ node_modules
 supabase-*.sql
 # Local OpenStreetMap extracts and tiles (prepare-osm.js); large, rebuilt per computer
 osm-data/
+# New scans go to Supabase only. Scans already committed stay tracked; new files here are ignored.
+web/data/scans/
