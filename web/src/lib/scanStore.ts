@@ -29,6 +29,8 @@ const ID_PATTERN = /^[0-9a-z-]+$/;
 const REMOTE_REFRESH_MS = 60 * 1000;
 /** Summaries fetched per request when catching up on new scans. */
 const META_BATCH = 50;
+/** Local meta files read at once when listing. */
+const READ_BATCH = 100;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY;
@@ -167,11 +169,18 @@ async function listLocalScans(): Promise<ScanMeta[]> {
   } catch {
     return [];
   }
-  const metas = await Promise.all(
-    files
-      .filter((f) => f.endsWith(".meta.json"))
-      .map(async (f) => withCounts(JSON.parse(await readFile(path.join(SCANS_DIR, f), "utf8")) as ScanMeta)),
-  );
+  // A few at a time: Vercel functions allow 1024 open files, and opening every meta file at
+  // once fails with EMFILE (an empty 500, so the map shows nothing) past ~1000 scans.
+  const metaFiles = files.filter((f) => f.endsWith(".meta.json"));
+  const metas: ScanMeta[] = [];
+  for (let i = 0; i < metaFiles.length; i += READ_BATCH) {
+    const batch = metaFiles.slice(i, i + READ_BATCH);
+    metas.push(
+      ...(await Promise.all(
+        batch.map(async (f) => withCounts(JSON.parse(await readFile(path.join(SCANS_DIR, f), "utf8")) as ScanMeta)),
+      )),
+    );
+  }
   return metas;
 }
 
