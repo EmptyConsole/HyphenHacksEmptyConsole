@@ -29,6 +29,8 @@ const ID_PATTERN = /^[0-9a-z-]+$/;
 const REMOTE_REFRESH_MS = 60 * 1000;
 /** Summaries fetched per request when catching up on new scans. */
 const META_BATCH = 50;
+/** Rows per Supabase request when listing every scan (Supabase's own cap is 1000). */
+const PAGE_ROWS = 1000;
 /** Local meta files read at once when listing. */
 const READ_BATCH = 100;
 
@@ -64,11 +66,24 @@ const localSavedAt = new Map<string, string>();
 let lastRefresh = 0;
 let refreshing: Promise<void> | null = null;
 
+/**
+ * Every row of a select, page by page. Supabase returns at most 1000 rows per request, so a
+ * single request silently drops the rest. Stops at the first empty page, so it still works
+ * if the project's row cap is lower than PAGE_ROWS.
+ */
+async function selectAll<T>(query: string, timeoutMs?: number): Promise<T[]> {
+  const rows: T[] = [];
+  for (;;) {
+    const page = await supabase<T[]>(`${query}&order=id&offset=${rows.length}&limit=${PAGE_ROWS}`, {}, timeoutMs);
+    if (!page.length) return rows;
+    rows.push(...page);
+  }
+}
+
 /** Ask Supabase when each scan was last saved (tiny), then fetch summaries that are new or newer. */
 async function refreshRemote(local: Map<string, ScanMeta>) {
-  const rows = await supabase<{ scan_id: string | null; updatedAt: string | null; createdAt: string | null }[]>(
+  const rows = await selectAll<{ scan_id: string | null; updatedAt: string | null; createdAt: string | null }>(
     "scans?select=scan_id,updatedAt:meta->>updatedAt,createdAt:meta->>createdAt",
-    {},
     15_000,
   );
   const needed: string[] = [];

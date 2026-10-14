@@ -73,7 +73,14 @@ async function select(query) {
 /** Every scan's small summary (the meta column), without the big json. */
 export async function listRemoteMetas() {
   if (!supabaseEnabled) return [];
-  return (await select("scans?select=meta")).map((row) => row.meta).filter((meta) => meta?.id);
+  // Supabase returns at most 1000 rows per request, so read it page by page.
+  const rows = [];
+  for (;;) {
+    const page = await select(`scans?select=meta&order=id&offset=${rows.length}&limit=1000`);
+    if (!page.length) break;
+    rows.push(...page);
+  }
+  return rows.map((row) => row.meta).filter((meta) => meta?.id);
 }
 
 /** One scan's full detector output, or null. */
