@@ -14,7 +14,8 @@ import { detectVillages } from "@/lib/detector/detectVillages.mjs";
  * Besides `json` ({ meta, scan }), each row has two small columns a trigger keeps filled
  * (see supabase-speedup.sql): scan_id (unique, indexed) and meta. Listing and lookups use
  * those, so the big json is only read when a scan that isn't on disk is opened. Supabase is
- * checked in the background at most once a minute and the list never waits for it.
+ * checked in the background at most once a minute; the list only waits for it on a server's
+ * first request.
  *
  * Keys come from web/.env.local (git-ignored): SUPABASE_URL and SUPABASE_SECRET_KEY.
  */
@@ -97,10 +98,18 @@ async function refreshRemote(local: Map<string, ScanMeta>) {
     if (cached && savedAt(cached) === stamp) continue; // Already have this version.
     needed.push(id);
   }
-  for (let i = 0; i < needed.length; i += META_BATCH) {
-    const batch = needed.slice(i, i + META_BATCH);
-    const metas = await supabase<{ meta: ScanMeta | null }[]>(`scans?select=meta&scan_id=in.(${batch.join(",")})`);
-    for (const { meta } of metas) if (meta?.id) remote.set(meta.id, meta);
+  if (needed.length > META_BATCH * 4) {
+    // Many new summaries (a cold server with no files on disk): a few big pages beat
+    // dozens of small requests.
+    const wanted = new Set(needed);
+    const metas = await selectAll<{ meta: ScanMeta | null }>("scans?select=meta");
+    for (const { meta } of metas) if (meta?.id && wanted.has(meta.id)) remote.set(meta.id, meta);
+  } else {
+    for (let i = 0; i < needed.length; i += META_BATCH) {
+      const batch = needed.slice(i, i + META_BATCH);
+      const metas = await supabase<{ meta: ScanMeta | null }[]>(`scans?select=meta&scan_id=in.(${batch.join(",")})`);
+      for (const { meta } of metas) if (meta?.id) remote.set(meta.id, meta);
+    }
   }
   lastRefresh = Date.now();
 }
@@ -173,6 +182,12 @@ export async function listScans(): Promise<ScanMeta[]> {
   const local = new Map((await listLocalScans()).map((m) => [m.id, m]));
   for (const meta of local.values()) localSavedAt.set(meta.id, savedAt(meta));
   const merged = new Map(local);
+  // A server that just started has no Supabase list yet. Wait for the first one, so scans
+  // that only live in Supabase aren't missing from the map until the next request.
+  if (lastRefresh === 0) {
+    remoteScans(local);
+    await refreshing;
+  }
   for (const meta of remoteScans(local)) merged.set(meta.id, meta);
   return [...merged.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
