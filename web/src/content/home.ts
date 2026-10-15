@@ -4,7 +4,7 @@
 export const homeContent = {
   hero: {
     eyebrow: "The goal",
-    headlineLines: ["Making sure", "no one", "is left behind."],
+    headlineLines: ["Bringing healthcare", "to rural", "populations."],
     lead:
       "In today's world, there are over 1.9 billion people living in rural areas without any healthcare.",
     ctas: [
