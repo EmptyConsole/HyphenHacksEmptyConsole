@@ -1641,7 +1641,7 @@ function ClinicCard({
               [
                 ["Scan areas", String(t.scanCount)],
                 ["Stops", String(t.stops)],
-                ["Travel", formatCost(t.costUsd)],
+                ["Cost", formatCost(t.costUsd + t.vaccinationUsd)],
                 ["Distance", `${((t.roadMeters + t.offroadMeters) / 1000).toFixed(1)} km`],
               ] as const
             ).map(([label, value]) => (
