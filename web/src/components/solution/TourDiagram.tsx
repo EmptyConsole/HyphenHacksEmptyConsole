@@ -2,7 +2,7 @@ import styles from "./SolutionPage.module.css";
 
 /**
  * Illustrative layout, not a real scan: one clinic and six villages. The faint loop is
- * "nearest stop first"; the bright loop is the same stops after 2-opt.
+ * "cheapest stop first"; the bright loop is the same stops after 2-opt.
  */
 const POINTS: [number, number][] = [
   [24, 70], [75, 117], [174, 119], [124, 31], [152, 42], [84, 32], [106, 98],
@@ -20,7 +20,7 @@ export default function TourDiagram() {
       className={styles.route}
       viewBox="0 0 560 320"
       role="img"
-      aria-label="One team leaves the clinic, visits six villages and returns. The faint loop visits the nearest village each time and crosses itself; the bright loop is the same villages in a cheaper order."
+      aria-label="One team leaves the clinic, visits six villages and returns. The faint loop visits the cheapest next village each time and crosses itself; the bright loop is the same villages in a cheaper order."
     >
       <path className={styles.ghost} d={d(GREEDY)} />
       <path className={`${styles.leg} ${styles.legRoad}`} d={d(IMPROVED)} />

@@ -43,8 +43,9 @@ export default function CodePanel({ source, error, range, label, jump }: CodePan
     if (!box || !range || jump === 0) return;
     const line = box.querySelector(`[data-line="${range[0]}"]`);
     if (!(line instanceof HTMLElement)) return;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    box.scrollTo({ top: Math.max(0, line.offsetTop - 12), behavior: reduce ? "auto" : "smooth" });
+    // offsetTop is unreliable once the line-number column is sticky.
+    const top = line.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+    box.scrollTop = Math.max(0, top - 12);
   }, [range, jump, lines]);
 
   useEffect(() => {
@@ -54,7 +55,7 @@ export default function CodePanel({ source, error, range, label, jump }: CodePan
   }, [saved]);
 
   return (
-    <div className={styles.codeBox}>
+    <div id="algorithm-code" className={styles.codeBox}>
       <div className={styles.codeBar}>
         <div className={styles.codeMeta}>
           <span className={styles.fileName}>detectVillages.mjs</span>

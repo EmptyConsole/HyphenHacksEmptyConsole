@@ -3,22 +3,9 @@
  * Every number must point at an entry in `sources`. Don't add one that can't.
  */
 
-export type SourceId = "worldBank" | "ilo" | "nature" | "wuenic";
+export type SourceId = "nature" | "weiss";
 
 export const sources: { id: SourceId; label: string; detail: string; href: string }[] = [
-  {
-    id: "worldBank",
-    label: "World Bank: Rural population & urban population (World Development Indicators)",
-    detail: "Indicators SP.RUR.TOTL, SP.RUR.TOTL.ZS and SP.URB.TOTL, 1960–2025.",
-    href: "https://data.worldbank.org/indicator/SP.RUR.TOTL",
-  },
-  {
-    id: "ilo",
-    label:
-      "International Labour Organization (2015): Global evidence on inequities in rural health protection",
-    detail: "New data on rural deficits in health coverage for 174 countries. Ed. X. Scheil-Adlung, ESS Document No. 47.",
-    href: "https://www.ilo.org/sites/default/files/wcmsp5/groups/public/@ed_protect/@soc_sec/documents/publication/wcms_383890.pdf",
-  },
   {
     id: "nature",
     label:
@@ -27,118 +14,59 @@ export const sources: { id: SourceId; label: string; detail: string; href: strin
     href: "https://www.nature.com/articles/s41467-025-56906-7",
   },
   {
-    id: "wuenic",
-    label: "WHO & UNICEF (July 2026): Estimates of National Immunization Coverage, 2025",
-    detail: "Press release and the accompanying “Progress and challenges” report.",
-    href: "https://www.who.int/news/item/15-07-2026-global-childhood-immunization-coverage-inches-forward-despite-conflict-and-hesitancy---unicef--who",
+    id: "weiss",
+    label: "Weiss et al. (2020): Global maps of travel time to healthcare facilities",
+    detail: "Nature Medicine 26, 1835–1838. Travel time to the nearest hospital or clinic, on foot and by motorized transport.",
+    href: "https://www.nature.com/articles/s41591-020-1059-1",
   },
 ];
+
+type Paragraph = { text: string; cite?: SourceId[] };
 
 export const problemContent = {
   eyebrow: "The problem",
   title: "Problem",
   subtitle:
-    "Billions of people live far from cities, and far from care. Many of them are also missing from the maps that health services are planned from.",
+    "Globally, 1.9 billion people have no access to healthcare just because they live in rural regions of their country.",
 
   stats: [
     {
       value: "3.46 billion",
-      label: "people live in rural areas, 42% of everyone on Earth.",
-      source: "worldBank",
+      label: "people live in rural areas around the world",
     },
     {
       value: "1.9 billion",
-      label: "of them have no health coverage: no health system or insurance scheme they belong to.",
+      label: "of them have no health coverage at all. They are not part of any health system or insurance plan.",
       note: "56% of the rural population (ILO) × 3.46 billion.",
-      source: "ilo",
     },
     {
       value: "About half",
-      label: "of rural residents were missing from even the most accurate global population map.",
+      label: "of rural residents were missing from the best global population map in one study.",
       note: "Study of 307 rural areas in 35 countries, 1975–2010.",
       source: "nature",
     },
     {
       value: "13.5 million",
       label: "babies didn't get a single vaccine in their first year of life in 2025.",
-      source: "wuenic",
     },
-  ] satisfies { value: string; label: string; note?: string; source: SourceId }[],
+  ] satisfies { value: string; label: string; note?: string; source?: SourceId }[],
 
-  rural: {
-    eyebrow: "01 · Rural world",
-    title: "More people live in the countryside today than ever recorded.",
+  location: {
+    eyebrow: "01 · Location",
+    title: "Offical maps are missing villages",
     body: [
-      "Cities get the attention, but the rural population has kept growing: from 2.0 billion people in 1960 to 3.46 billion in 2025. Cities just grew faster, passing the countryside in 2007.",
-      "Rural life is most common where money is tightest. In low-income countries, nearly two out of three people live in rural areas.",
-    ],
-    trendCaption: "World population by where people live, 1960–2025 (billions)",
-    crossoverYear: 2007,
-    trend: [
-      { year: 1960, rural: 1.99, urban: 1.03 },
-      { year: 1965, rural: 2.15, urban: 1.17 },
-      { year: 1970, rural: 2.34, urban: 1.34 },
-      { year: 1975, rural: 2.53, urban: 1.53 },
-      { year: 1980, rural: 2.69, urban: 1.75 },
-      { year: 1985, rural: 2.84, urban: 2.01 },
-      { year: 1990, rural: 3.03, urban: 2.27 },
-      { year: 1995, rural: 3.19, urban: 2.54 },
-      { year: 2000, rural: 3.28, urban: 2.89 },
-      { year: 2005, rural: 3.33, urban: 3.25 },
-      { year: 2010, rural: 3.38, urban: 3.62 },
-      { year: 2015, rural: 3.39, urban: 4.05 },
-      { year: 2020, rural: 3.42, urban: 4.43 },
-      { year: 2025, rural: 3.46, urban: 4.75 },
-    ],
-    shareCaption: "Share of people living in rural areas, by country income group (2025)",
-    share: [
-      { label: "Low income", value: 65 },
-      { label: "Lower-middle income", value: 58 },
-      { label: "World", value: 42 },
-      { label: "Upper-middle income", value: 32 },
-      { label: "High income", value: 20 },
-    ],
-    source: "worldBank" as SourceId,
-    scan: "Country totals hide the villages. Help us scan a region.",
-  },
-
-  health: {
-    eyebrow: "02 · The health gap",
-    title: "Rural people are 2.5× as likely to have no health coverage.",
-    body: [
-      "The ILO compared rural and urban health care in 174 countries. On every measure, people in the countryside came out behind.",
-    ],
-    compareCaption: "Rural vs. urban, worldwide (ILO estimates, published 2015)",
-    compare: [
-      { label: "Have no health coverage", rural: 56, urban: 22, unit: "%", max: 100 },
       {
-        label: "Can't get care because there aren't enough health workers",
-        rural: 52,
-        urban: 24,
-        unit: "%",
-        max: 100,
+        text: "Many offical maps used by governments in order to give data to health facilities are missing many rural villages. This is especially common in developing countries. Without the maps knowing where these people are, the only way to find them is using a satelite.",
       },
-      { label: "Mothers who die per 10,000 births", rural: 29, urban: 11, unit: "", max: 40 },
-    ],
-    workers: {
-      title: "Where the health workers are",
-      people: { value: 50, label: "of the world's people lived in rural areas" },
-      staff: { value: 23, label: "of its health workers worked there" },
-      shortfall:
-        "Of the 10.3 million health workers the world is short of, about 7 million are needed in rural areas.",
-    },
-    source: "ilo" as SourceId,
-    scan: "The gap is in the countryside. Help us scan a region.",
-  },
-
-  invisible: {
-    eyebrow: "03 · Invisible on the map",
-    title: "You can't plan for people you can't see.",
-    body: [
-      "Governments and aid groups use census counts and population maps to decide where clinics go, how many vaccines to send, and which villages outreach teams visit.",
-      "A 2025 study checked five of the most widely used global population maps against independent headcounts from 307 rural areas. Every one of them under-counted rural people, the best by about half.",
-    ],
-    undercountCaption: "How much each population map under-counted rural residents, on average (1975–2010)",
+      {
+        text: "This was explicitly proven in 2025, when a scientific study compared the five most popular population maps against real-life headcounts in rural areas of the world. None of them were anywhere near the corrent answer. Instead, they all heavily underestimated the region's full population. The best map, WorldPop, only accounted for 47% of the region's population.",
+        // text: "A 2025 study checked five popular global population maps against real headcounts from 307 rural areas. Every map undercounted rural people. Even the best one missed about half of them.",
+        cite: ["nature"],
+      },
+    ] satisfies Paragraph[],
+    mapCaption: "Offical maps often hide villages that we can find through satellite imagery",
+    // mapNote: "A drawing, not a real scan.",
+    undercountCaption: "How much each population map undercounted rural residents, on average (1975–2010)",
     undercount: [
       { label: "WorldPop", value: 53 },
       { label: "GWP", value: 65 },
@@ -146,34 +74,75 @@ export const problemContent = {
       { label: "LandScan", value: 68 },
       { label: "GHS-POP", value: 84 },
     ],
-    takeaway:
-      "When people are missing from the data, they can be missing from the plan. The study's authors warn that past health-access studies built on these maps may have led planners to provide too few health services in rural areas.",
-    caveat:
-      "The study could only check maps up to 2010. Newer maps may be better, but the authors say there is strong reason to believe they still miss rural people.",
-    source: "nature" as SourceId,
-    scan: "Still missing from the map? Help us scan a region.",
+    // caveat:
+      // "The study could only check maps up to 2010. Newer maps might be better, but the authors think they most likely still miss rural people.",
   },
 
-  vaccines: {
-    eyebrow: "04 · Vaccines",
-    title: "The children no vaccine reaches.",
+  routes: {
+    eyebrow: "02 · Route",
+    title: "Clinics don't know the cheapest way to reach them",
     body: [
-      "Health workers call them “zero-dose” children: babies who never receive a single routine vaccine. In 2025 there were 13.5 million of them, still more than in 2019.",
-    ],
-    facts: [
-      { value: "13.5M", label: "zero-dose children in 2025" },
-      { value: "54%", label: "of them live in fragile or conflict-affected countries" },
-      { value: "#1", label: "Nigeria has more zero-dose children than any other country" },
-    ],
-    source: "wuenic" as SourceId,
-    scan: "Zero-dose children live somewhere. Help us scan a region.",
+      {
+        text: "Even if the government knows where the villages are, they still don't always know the most efficient way to reach them.",
+        // cite: ["weiss"],
+      },
+      {
+        text: "With a large majority of all health clinics being in cities or towns, it can be incredibly difficult to figure out which clinic should take the effort to reach the nearest villages."
+      },
+      {
+        text: "Along with the issue of which clinic should attempt to reach the village, there is also the issue of how they should plan to get there, as the shortest route is often not the cheapest. To solve something like this, the health clinic would need some way to consistently weigh different terrians across paths.",
+        // cite: ["ruralRoadsCost"],
+      },
+      // {
+        // text: "This leaves health clinics with two issues: 1) Who should attempt to reach the villages, and 2) How they should efficiently travel there.",
+        // cite: ["ruralRoadsCost"],
+      // },
+    ] satisfies Paragraph[],
+    travelCaption: "Out of every 100 people in the world, how far each one is from the nearest health facility",
+    travel: { byCar: 8.9, onFoot: 43.3 },
+    travelKey: {
+      byCar: "More than an hour away, even by car",
+      onFoot: "Reachable by car, but more than an hour's walk",
+      near: "Within an hour's walk",
+    },
+    routeCaption: "The shortest route on the map isn't always the cheapest",
+    route: {
+      shortest: { label: "Shortest", road: "dirt track", km: 18, rate: 4.5 },
+      cheapest: { label: "Cheapest", road: "paved road", km: 26, rate: 1.4 },
+    },
+    // routeNote: "A drawing. Prices per km are Hestia's planning rates, not field measurements.",
   },
 
-  closing: {
-    title: "Reaching them starts with knowing where they are.",
-    body: "Hestia looks for settlements that satellites can see but maps don't show, then plots a route from the nearest clinic so health teams can get there.",
-    primaryCta: { label: "Explore the map", href: "/#map" },
-    secondaryCta: { label: "See the algorithm", href: "/algorithm" },
-    scan: "Reaching them starts with a place on the map. Help us scan a region.",
+  funding: {
+    eyebrow: "03 · Funding",
+    title: "Rural clinics don't get enough money",
+    body: [
+      {
+        text: "In order to split the money between different health facilities, the cost of travel and number of people visited must be known precisly. In the case of rural facilities, neither of these values are known(due to issues 1 and 2). Without them, governments do not know how much money to give each facility, which severly limits the amount of good they can do.",
+        // cite: ["pogo"],
+      },
+      {
+        text: "This is due to what happens when the government is not given a precise cost estimate. Without knowing the true cost of serving their people, governments worry about overspending and wasting resources that could be used elsewhere. As overspending becomes the main thought in their minds, the result is almost always underspending, which can lead to incredible plans going unfullfilled.",
+        // cite: ["nigeriaCensus"],
+      },
+      // {
+      //   text: "Without good numbers on people or trip costs, rural areas keep getting too little. The ILO found that a lack of money keeps 63% of rural people from getting care, almost twice the urban rate.",
+      //   cite: ["ilo"],
+      // },
+    ] satisfies Paragraph[],
+    chainCaption: "How a missing village loses its funding",
+    chain: [
+      { title: "Not on the map", text: "Satellites can see the roofs, but the official map is empty." },
+      { title: "Not counted", text: "Population estimates leave the people out." },
+      { title: "Not in the budget", text: "Money is split by headcount, so none is set aside." },
+      { title: "Not enough care", text: "The nearest clinic is short on staff, vaccines and fuel." },
+    ],
+    costChainCaption: "How a missing cost estimate leads to underspending",
+    costChain: [
+      { title: "No cost estimate", text: "Nobody knows what staff, fuel and travel to each village will cost." },
+      { title: "Budget by guessing", text: "Planners have to guess how much rural outreach needs." },
+      { title: "Fear of overspending", text: "Running out of money halfway through is risky, so they guess low." },
+      { title: "Too little spent", text: "Trips get cut, and the farthest villages are dropped first." },
+    ],
   },
 };

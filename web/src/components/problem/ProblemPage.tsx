@@ -1,10 +1,11 @@
-import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import HelpScanPrompt from "@/components/help/HelpScanPrompt";
 import { problemContent, sources, type SourceId } from "@/content/problem";
+import MapGap from "./MapGap";
 import Reveal from "./Reveal";
-import TrendChart from "./TrendChart";
+import RouteChoice from "./RouteChoice";
+import TravelWaffle from "./TravelWaffle";
 import styles from "./ProblemPage.module.css";
+import diagrams from "./ProblemDiagrams.module.css";
 
 function Cite({ id }: { id: SourceId }) {
   const n = sources.findIndex((s) => s.id === id) + 1;
@@ -23,13 +24,11 @@ function Section({
   eyebrow,
   title,
   body,
-  source,
   children,
 }: {
   eyebrow: string;
   title: string;
-  body: string[];
-  source: SourceId;
+  body: { text: string; cite?: SourceId[] }[];
   children: ReactNode;
 }) {
   return (
@@ -38,10 +37,10 @@ function Section({
         <header className={styles.copy}>
           <p className="eyebrow">{eyebrow}</p>
           <h2 className={styles.h2}>{title}</h2>
-          {body.map((p, i) => (
-            <p key={i} className={styles.body}>
-              {p}
-              {i === body.length - 1 && <Cite id={source} />}
+          {body.map((p) => (
+            <p key={p.text} className={styles.body}>
+              {p.text}
+              {p.cite?.map((id) => <Cite key={id} id={id} />)}
             </p>
           ))}
         </header>
@@ -51,8 +50,24 @@ function Section({
   );
 }
 
+function Chain({ caption, steps }: { caption: string; steps: { title: string; text: string }[] }) {
+  return (
+    <figure className={styles.card}>
+      <figcaption className={styles.caption}>{caption}</figcaption>
+      <ol className={diagrams.chain}>
+        {steps.map((step) => (
+          <li key={step.title} className={diagrams.chainStep}>
+            <span className={diagrams.chainTitle}>{step.title}</span>
+            <span className={diagrams.chainText}>{step.text}</span>
+          </li>
+        ))}
+      </ol>
+    </figure>
+  );
+}
+
 export default function ProblemPage() {
-  const { stats, rural, health, invisible, vaccines, closing } = problemContent;
+  const { /* stats, */ location, routes, funding } = problemContent;
   return (
     <main className={styles.page}>
       <header className={`container ${styles.hero}`}>
@@ -61,6 +76,7 @@ export default function ProblemPage() {
         <p className={styles.subtitle}>{problemContent.subtitle}</p>
       </header>
 
+      {/*
       <div className="container">
         <ul className={styles.stats}>
           {stats.map((s) => (
@@ -75,101 +91,25 @@ export default function ProblemPage() {
           ))}
         </ul>
       </div>
+      */}
 
-      <Section {...rural}>
-        <figure className={styles.card}>
-          <figcaption className={styles.caption}>{rural.trendCaption}</figcaption>
-          <TrendChart data={rural.trend} crossoverYear={rural.crossoverYear} />
-          <div className={styles.legend}>
-            <span className={styles.keyRural}>Rural</span>
-            <span className={styles.keyUrban}>Urban</span>
-          </div>
-        </figure>
+      <Section {...location}>
+        <Reveal className={styles.card}>
+          <figure>
+            <figcaption className={styles.caption}>{location.mapCaption}</figcaption>
+            <MapGap />
+            <p className={styles.footnote}>{location.mapNote}</p>
+          </figure>
+        </Reveal>
 
         <Reveal className={styles.card}>
           <figure>
-            <figcaption className={styles.caption}>{rural.shareCaption}</figcaption>
+            <figcaption className={styles.caption}>
+              {location.undercountCaption}
+              <Cite id="nature" />
+            </figcaption>
             <ul className={styles.bars}>
-              {rural.share.map((s) => (
-                <li key={s.label} className={styles.barRow} data-muted={s.label === "World" || undefined}>
-                  <span className={styles.barLabel}>{s.label}</span>
-                  <span className={styles.track}>
-                    <span className={`${styles.fill} ${styles.fillRural}`} style={fill(s.value, 100)} />
-                  </span>
-                  <span className={styles.barValue}>{s.value}%</span>
-                </li>
-              ))}
-            </ul>
-          </figure>
-        </Reveal>
-      </Section>
-
-      <Section {...health}>
-        <Reveal className={styles.card}>
-          <figure>
-            <figcaption className={styles.caption}>{health.compareCaption}</figcaption>
-            <div className={styles.legend}>
-              <span className={styles.keyRural}>Rural</span>
-              <span className={styles.keyUrban}>Urban</span>
-            </div>
-            <ul className={styles.compare}>
-              {health.compare.map((c) => (
-                <li key={c.label}>
-                  <p className={styles.compareLabel}>{c.label}</p>
-                  <div className={styles.barRow}>
-                    <span className={styles.barLabelSm}>Rural</span>
-                    <span className={styles.track}>
-                      <span className={`${styles.fill} ${styles.fillRural}`} style={fill(c.rural, c.max)} />
-                    </span>
-                    <span className={styles.barValue}>
-                      {c.rural}
-                      {c.unit}
-                    </span>
-                  </div>
-                  <div className={styles.barRow}>
-                    <span className={styles.barLabelSm}>Urban</span>
-                    <span className={styles.track}>
-                      <span className={`${styles.fill} ${styles.fillUrban}`} style={fill(c.urban, c.max)} />
-                    </span>
-                    <span className={styles.barValue}>
-                      {c.urban}
-                      {c.unit}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </figure>
-        </Reveal>
-
-        <Reveal className={styles.card}>
-          <figure>
-            <figcaption className={styles.caption}>{health.workers.title}</figcaption>
-            <div className={styles.workers}>
-              {[
-                { ...health.workers.people, cls: styles.fillNeutral },
-                { ...health.workers.staff, cls: styles.fillRural },
-              ].map((w) => (
-                <div key={w.label} className={styles.worker}>
-                  <span className={styles.workerValue}>{w.value}%</span>
-                  <span className={styles.workerLabel}>{w.label}</span>
-                  <span className={`${styles.track} ${styles.trackTall}`}>
-                    <span className={`${styles.fill} ${w.cls}`} style={fill(w.value, 100)} />
-                  </span>
-                </div>
-              ))}
-            </div>
-            <p className={styles.footnote}>{health.workers.shortfall}</p>
-          </figure>
-        </Reveal>
-      </Section>
-
-      <Section {...invisible}>
-        <Reveal className={styles.card}>
-          <figure>
-            <figcaption className={styles.caption}>{invisible.undercountCaption}</figcaption>
-            <ul className={styles.bars}>
-              {invisible.undercount.map((u) => (
+              {location.undercount.map((u) => (
                 <li key={u.label} className={styles.barRow}>
                   <span className={styles.barLabel}>{u.label}</span>
                   <span className={styles.track}>
@@ -179,40 +119,33 @@ export default function ProblemPage() {
                 </li>
               ))}
             </ul>
+            <p className={styles.footnote}>{location.caveat}</p>
           </figure>
         </Reveal>
-        <div className={styles.callout}>
-          <p>{invisible.takeaway}</p>
-          <p className={styles.footnote}>{invisible.caveat}</p>
-        </div>
       </Section>
 
-      <Section {...vaccines}>
-        <ul className={styles.facts}>
-          {vaccines.facts.map((f) => (
-            <li key={f.label} className={styles.fact}>
-              <span className={styles.factValue}>{f.value}</span>
-              <span className={styles.factLabel}>{f.label}</span>
-            </li>
-          ))}
-        </ul>
+      <Section {...routes}>
+        <Reveal className={styles.card}>
+          <figure>
+            <figcaption className={styles.caption}>
+              {routes.travelCaption}
+              <Cite id="weiss" />
+            </figcaption>
+            <TravelWaffle {...routes.travel} labels={routes.travelKey} />
+          </figure>
+        </Reveal>
+
+        <figure className={styles.card}>
+          <figcaption className={styles.caption}>{routes.routeCaption}</figcaption>
+          <RouteChoice {...routes.route} />
+          <p className={styles.footnote}>{routes.routeNote}</p>
+        </figure>
       </Section>
 
-      <section className={styles.closing}>
-        <div className="container">
-          <h2 className={styles.h2}>{closing.title}</h2>
-          <p className={styles.body}>{closing.body}</p>
-          <div className={styles.ctas}>
-            <Link href={closing.primaryCta.href} className="btn btn-primary">
-              {closing.primaryCta.label}
-            </Link>
-            <Link href={closing.secondaryCta.href} className="btn btn-secondary">
-              {closing.secondaryCta.label}
-            </Link>
-          </div>
-          <HelpScanPrompt message={closing.scan} />
-        </div>
-      </section>
+      <Section {...funding}>
+        <Chain caption={funding.chainCaption} steps={funding.chain} />
+        <Chain caption={funding.costChainCaption} steps={funding.costChain} />
+      </Section>
 
       <section id="sources" className={styles.sources}>
         <div className="container">

@@ -1171,7 +1171,7 @@ export default function ExplorerMap() {
 
   const hint =
     level === 0
-      ? "Click a country to zoom in. Click any number to see how it's worked out."
+      ? "Click on a country to zoom in, or click any number to see how we got it."
       : level === 1
         ? detectedHere
           ? "Click a dot to open a scan."
@@ -1230,7 +1230,7 @@ export default function ExplorerMap() {
 
   return (
     <div className={styles.wrap} data-theme={mapTheme}>
-      <div ref={containerRef} className={styles.map} />
+      <div ref={containerRef} id="map-canvas" className={styles.map} />
 
       <aside className={styles.panel} aria-live="polite">
         <nav className={styles.crumbs} aria-label="Map level">

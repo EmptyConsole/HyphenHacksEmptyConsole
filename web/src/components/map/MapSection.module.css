@@ -2,11 +2,22 @@
   padding-block: var(--space-24) var(--space-32);
 }
 
+/* Desktop map height is max(520px, min(74vh, 720px)). Leave enough room
+   below it for the map canvas to sit in the vertical center of the screen. */
+@media (min-width: 761px) {
+  .section {
+    padding-bottom: max(
+      var(--space-32),
+      calc(50vh - max(260px, min(37vh, 360px)) + var(--space-6))
+    );
+  }
+}
+
 .header {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  max-width: 40rem;
+  max-width: max(40rem, 70%);
   margin-bottom: var(--space-10);
 }
 

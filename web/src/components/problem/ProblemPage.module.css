@@ -11,7 +11,7 @@
   gap: var(--space-5);
   text-align: center;
   padding-top: calc(var(--nav-height) + clamp(4rem, 10vh, 7rem));
-  padding-bottom: var(--space-16);
+  padding-bottom: var(--space-8);
 }
 
 .title {
@@ -91,7 +91,8 @@
 }
 
 .section:first-of-type {
-  margin-top: var(--space-16);
+  margin-top: 0;
+  padding-top: var(--space-12);
   border-top: 1px solid var(--color-border);
 }
 
@@ -147,15 +148,6 @@
   color: var(--color-text-tertiary);
 }
 
-.legend {
-  display: flex;
-  gap: var(--space-5);
-  margin-bottom: var(--space-4);
-  font-size: var(--text-small);
-  color: var(--color-text-secondary);
-}
-
-.keyRural::before,
 .keyUrban::before {
   content: "";
   display: inline-block;
@@ -163,98 +155,16 @@
   height: 10px;
   margin-right: var(--space-2);
   border-radius: 50%;
-}
-
-.keyRural::before {
-  background: var(--data-4);
-}
-
-.keyUrban::before {
   background: var(--color-constellation);
-}
-
-/* ---------- Line chart ---------- */
-
-.trend {
-  display: block;
-  width: 100%;
-  height: auto;
-  overflow: visible;
-}
-
-.grid {
-  stroke: var(--color-border);
-}
-
-.axis {
-  font-size: 12px;
-  fill: var(--color-text-tertiary);
-}
-
-.line {
-  fill: none;
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.lineRural {
-  stroke: var(--data-4);
-}
-
-.lineUrban {
-  stroke: var(--color-constellation);
-}
-
-.marker line {
-  stroke: var(--color-text-tertiary);
-  stroke-dasharray: 3 4;
-}
-
-.marker circle {
-  fill: var(--color-bg);
-  stroke: var(--color-text);
-  stroke-width: 2;
-}
-
-.marker text {
-  font-size: 12px;
-  fill: var(--color-text-secondary);
-}
-
-.endLabel {
-  font-size: 14px;
-  font-weight: var(--weight-semibold);
-}
-
-.endRural {
-  fill: var(--data-4);
-}
-
-.endUrban {
-  fill: var(--color-constellation);
 }
 
 /* ---------- Bar charts ---------- */
 
-.bars,
-.compare {
+.bars {
   display: flex;
   flex-direction: column;
-  list-style: none;
-}
-
-.bars {
   gap: var(--space-3);
-}
-
-.compare {
-  gap: var(--space-6);
-}
-
-.compareLabel {
-  margin-bottom: var(--space-2);
-  color: var(--color-text);
+  list-style: none;
 }
 
 .barRow {
@@ -264,22 +174,8 @@
   gap: var(--space-3);
 }
 
-.compare .barRow {
-  grid-template-columns: 3.5rem 1fr 3.5rem;
-  margin-top: var(--space-1);
-}
-
-.barRow[data-muted] {
-  color: var(--color-text-secondary);
-}
-
 .barLabel {
   font-size: var(--text-small);
-}
-
-.barLabelSm {
-  font-size: var(--text-micro);
-  color: var(--color-text-tertiary);
 }
 
 .barValue {
@@ -298,10 +194,6 @@
   overflow: hidden;
 }
 
-.trackTall {
-  height: 20px;
-}
-
 .fill {
   position: absolute;
   inset: 0;
@@ -315,16 +207,8 @@
   transform: scaleX(var(--fill));
 }
 
-.fillRural {
-  background: linear-gradient(90deg, var(--data-3), var(--data-4));
-}
-
 .fillUrban {
   background: var(--color-constellation);
-}
-
-.fillNeutral {
-  background: var(--color-text-tertiary);
 }
 
 .fillMissing {
@@ -335,37 +219,6 @@
     rgba(123, 111, 208, 0.55) 6px,
     rgba(123, 111, 208, 0.55) 12px
   );
-}
-
-.barRow[data-muted] .fill {
-  opacity: 0.55;
-}
-
-/* ---------- Health workers ---------- */
-
-.workers {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-6);
-}
-
-.worker {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.workerValue {
-  font-size: var(--text-h2);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-heading);
-  line-height: 1;
-}
-
-.workerLabel {
-  min-height: 3em;
-  font-size: var(--text-small);
-  color: var(--color-text-secondary);
 }
 
 /* ---------- Callout & facts ---------- */
@@ -481,17 +334,12 @@
 
 @media (max-width: 600px) {
   .stats,
-  .facts,
-  .workers {
+  .facts {
     grid-template-columns: 1fr;
   }
 
   .barRow {
     grid-template-columns: 7rem 1fr 3rem;
-  }
-
-  .workerLabel {
-    min-height: 0;
   }
 }
 

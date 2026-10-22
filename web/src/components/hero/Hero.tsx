@@ -1,7 +1,23 @@
+"use client";
+
 import Link from "next/link";
 import { homeContent } from "@/content/home";
 import HeroGlobeLoader from "./HeroGlobeLoader";
 import styles from "./Hero.module.css";
+
+function scrollMapIntoCenter(event: React.MouseEvent<HTMLAnchorElement>) {
+  const map = document.getElementById("map-canvas");
+  if (!map) return;
+
+  event.preventDefault();
+  const rect = map.getBoundingClientRect();
+  const top = window.scrollY + rect.top - (window.innerHeight - rect.height) / 2;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  window.scrollTo({
+    top: Math.max(0, top),
+    behavior: reduceMotion ? "auto" : "smooth",
+  });
+}
 
 export default function Hero() {
   const { hero } = homeContent;
@@ -33,7 +49,13 @@ export default function Hero() {
         <p className={styles.lead}>{hero.lead}</p>
         <div className={styles.ctas}>
           {hero.ctas.map((cta) => (
-            <Link key={cta.href} href={cta.href} className={`btn btn-${cta.variant}`}>
+            <Link
+              key={cta.href}
+              href={cta.href}
+              scroll={cta.href === "#map" ? false : undefined}
+              onClick={cta.href === "#map" ? scrollMapIntoCenter : undefined}
+              className={`btn btn-${cta.variant}`}
+            >
               {cta.label}
             </Link>
           ))}

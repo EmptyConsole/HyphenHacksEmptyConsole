@@ -26,7 +26,7 @@ function PictureScene() {
           </div>
         ))}
       </div>
-      <p className={styles.sceneNote}>Building outlines arrive square by square and are trimmed to the box.</p>
+      <p className={styles.sceneNote}>Building outlines load one square at a time and get cut to fit the box.</p>
       <button type="button" className={styles.textButton} onClick={() => setRun((value) => value + 1)}>
         Load again
       </button>
@@ -77,7 +77,7 @@ function RoofsScene() {
       </div>
       <p className={styles.sceneNote}>
         {kept
-          ? "Green, water, shadow, and the road fade. Red tile, concrete, and metal stay."
+          ? "Trees, water, shadow and the road go away. Red tile, concrete and metal roofs stay."
           : "This is the satellite picture before anything is removed."}
       </p>
     </div>
@@ -109,7 +109,7 @@ function JoinScene() {
           <path className={styles.shedMark} pathLength={1} d="M170 90 L196 112" />
         </g>
       </svg>
-      <p className={styles.sceneNote}>Buildings within about 50 m become one settlement. A shed on its own isn&apos;t a home.</p>
+      <p className={styles.sceneNote}>Buildings within about 50 m of each other become one settlement. The shed by itself gets removed.</p>
       <button type="button" className={styles.textButton} onClick={() => setRun((value) => value + 1)}>
         Join again
       </button>
@@ -146,7 +146,7 @@ function CheckScene() {
           On the map
         </button>
         <button type="button" className={styles.choice} data-on={!mapped || undefined} aria-pressed={!mapped} onClick={() => setMapped(false)}>
-          No name on the map
+          Not on the map
         </button>
       </div>
       {mapped ? (
@@ -158,7 +158,7 @@ function CheckScene() {
         <>
           <p className={styles.score}>
             <span className={styles.scoreValue}>{score.total}</span>
-            <span>Certainty from the picture alone. It cannot reach 100.</span>
+            <span>Certainty from the buildings alone. It cannot reach 100.</span>
           </p>
           <ul className={styles.meters}>
             {score.parts.map((part) => (
@@ -173,7 +173,7 @@ function CheckScene() {
               </li>
             ))}
           </ul>
-          <p className={styles.sceneNote}>This example has 6 roofs, a compactness of 0.36, and 28% roof-colored ground.</p>
+          <p className={styles.sceneNote}>This example has 6 buildings, a compactness of 0.36, and buildings covering 11% of the outline.</p>
         </>
       )}
     </div>
@@ -211,7 +211,7 @@ function CostScene() {
         </span>
       </p>
       <p className={styles.sceneNote}>
-        Drag the slider. Sheds and granaries aren&apos;t homes, and the visit costs $100 even for a tiny settlement.
+        Try moving the slider. The visit still costs $100 even if the settlement is tiny.
       </p>
     </div>
   );
@@ -225,7 +225,7 @@ const ROUTES = [
     km: 12,
     rate: 1.4,
     d: "M 36 28 C 110 28, 150 48, 196 70",
-    note: "Clinic A is the farthest, and still the cheapest, because the road is paved. Hestia keeps this trip.",
+    note: "Clinic A is the farthest away. The road is paved though, so it is the cheapest trip and Hestia picks it.",
   },
   {
     id: "track",
@@ -234,7 +234,7 @@ const ROUTES = [
     km: 6,
     rate: 4.5,
     d: "M 36 70 L 196 70",
-    note: "A shorter track, but $4.50 per kilometer adds up to more than the paved road.",
+    note: "The track is shorter. It costs $4.50 per kilometer, so the trip costs more than the paved road.",
   },
   {
     id: "none",
@@ -243,7 +243,7 @@ const ROUTES = [
     km: 3,
     rate: 8,
     d: "M 36 112 C 110 112, 150 92, 196 70",
-    note: "Only 3 kilometers, but with no road the team moves slowly, so each kilometer costs $8.",
+    note: "It is only 3 kilometers. There is no road though, so the team goes slowly and every kilometer costs $8.",
   },
 ] as const;
 
@@ -310,15 +310,15 @@ const TOUR_USD_PER_KM = 2;
 const TOURS = [
   {
     id: "greedy",
-    name: "Nearest stop first",
+    name: "Cheapest stop first",
     order: [0, 1, 6, 3, 4, 5, 2, 0],
-    note: "Always driving to the closest village left looks sensible, but the route doubles back and crosses itself.",
+    note: "Going to the village that's cheapest to reach next each time seems like it would work. Then the route goes back the way it came and crosses over itself.",
   },
   {
     id: "improved",
     name: "After 2-opt",
     order: [0, 5, 3, 4, 2, 6, 1, 0],
-    note: "2-opt reverses any stretch of the loop that makes it cheaper, until no swap helps. Same villages, no crossings.",
+    note: "2-opt reverses parts of the loop if that makes it cheaper, and stops when nothing helps. These are the same villages without the crossings.",
   },
 ] as const;
 

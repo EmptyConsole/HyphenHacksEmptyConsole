@@ -29,14 +29,6 @@
   color: var(--color-text-secondary);
 }
 
-.controls {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-}
-
 .progress {
   font-family: var(--font-mono);
   font-size: var(--text-micro);
@@ -130,10 +122,6 @@
   color: var(--color-accent-contrast);
 }
 
-.step[data-playing] .index {
-  box-shadow: 0 0 0 4px rgba(255, 181, 71, 0.28);
-}
-
 .stepButton {
   position: relative;
   display: grid;
@@ -199,8 +187,15 @@
   }
 }
 
-.codeLink {
+button.codeLink {
   align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  height: auto;
+  min-height: 44px;
+  padding-block: 0.65rem;
+  line-height: 1.25;
+  text-align: left;
 }
 
 /* ---------- Scenes ---------- */
@@ -676,6 +671,7 @@
   border-radius: var(--radius-lg);
   background: var(--color-bg-elevated);
   overflow: hidden;
+  scroll-margin-top: var(--space-4);
 }
 
 .codeBar {
@@ -743,6 +739,7 @@
 
 .line {
   display: flex;
+  align-items: flex-start;
   gap: var(--space-4);
   min-height: 1.6em;
   width: max-content;
@@ -759,9 +756,11 @@
 }
 
 .num {
-  flex: 0 0 3.25rem;
+  flex: 0 0 4.25rem;
   position: sticky;
   left: 0;
+  z-index: 1;
+  padding-right: var(--space-3);
   text-align: right;
   color: var(--color-text-tertiary);
   user-select: none;

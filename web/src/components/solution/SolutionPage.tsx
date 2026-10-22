@@ -1,9 +1,6 @@
-import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import HelpScanPrompt from "@/components/help/HelpScanPrompt";
 import { solutionContent, sources, type SourceId } from "@/content/solution";
 import type { ScanSummary } from "@/data/types";
-import { formatCost, formatPopulation } from "@/lib/format";
 import Reveal from "@/components/problem/Reveal";
 import styles from "@/components/problem/ProblemPage.module.css";
 import DetectSteps from "./DetectSteps";
@@ -59,11 +56,9 @@ function Section({
 
 /** `summary` is null in the prerendered shell, before the saved scans are read. */
 export default function SolutionPage({ summary }: { summary: ScanSummary | null }) {
-  const { find, check, reach, tour, price, closing } = solutionContent;
-  const stats = solutionContent.stats(summary, { count, people: formatPopulation });
+  const { find, check, reach, tour } = solutionContent;
   const osmMatched = summary?.osmMatched ?? 0;
   const satelliteOnly = summary ? summary.settlements - summary.osmMatched : 0;
-  const unicefTotal = price.unicef.reduce((sum, u) => sum + u.value, 0);
   const scoreTotal = check.score.reduce((sum, s) => sum + s.points, 0);
 
   return (
@@ -73,21 +68,6 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
         <h1 className={styles.title}>{solutionContent.title}</h1>
         <p className={styles.subtitle}>{solutionContent.subtitle}</p>
       </header>
-
-      <div className="container">
-        <ul className={styles.stats}>
-          {stats.map((s) => (
-            <li key={s.label} className={styles.stat}>
-              <span className={styles.statValue}>{s.value}</span>
-              <span className={styles.statLabel}>
-                {s.label}
-                <Cite id={s.source} />
-              </span>
-              {s.note && <span className={styles.statNote}>{s.note}</span>}
-            </li>
-          ))}
-        </ul>
-      </div>
 
       <Section {...find}>
         <figure className={styles.card}>
@@ -147,7 +127,7 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
               ))}
             </ul>
             <p className={styles.footnote}>
-              {scoreTotal} points in all, capped at 99. Only an OpenStreetMap match scores 100.
+              That adds up to {scoreTotal} points. The score stops at 99, because only an OpenStreetMap match can reach 100.
             </p>
           </figure>
         </Reveal>
@@ -161,7 +141,7 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
         <figure className={styles.card}>
           <figcaption className={styles.caption}>{reach.routeCaption}</figcaption>
           <RouteDiagram />
-          <p className={styles.footnote}>Illustration. Real routes for every settlement are drawn on the map.</p>
+          <p className={styles.footnote}>This is only an example. The real route for every settlement is on the map.</p>
         </figure>
 
         <Reveal className={styles.card}>
@@ -204,74 +184,6 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
           ))}
         </ul>
       </Section>
-
-      <Section {...price}>
-        <Reveal className={styles.card}>
-          <figure>
-            <figcaption className={styles.caption}>
-              {price.unicefCaption}
-              <Cite id="unicef" />
-            </figcaption>
-            <div className={own.stack}>
-              {price.unicef.map((u, i) => (
-                <span key={u.label} className={own.stackPart} data-tone={i ? 0 : 3} style={{ flexGrow: u.value }}>
-                  {Math.round((u.value / unicefTotal) * 100)}%
-                </span>
-              ))}
-            </div>
-            <ul className={own.stackKey}>
-              {price.unicef.map((u, i) => (
-                <li key={u.label} data-tone={i ? 0 : 3} style={{ flexGrow: u.value }}>
-                  <span className={own.stackLabel}>{u.label}</span>
-                  <span className={own.stackDetail}>{usd(u.value)}</span>
-                </li>
-              ))}
-            </ul>
-            <p className={styles.footnote}>
-              Total {usd(unicefTotal)} per child. {price.unicefNote}
-            </p>
-          </figure>
-        </Reveal>
-
-        <figure className={styles.card}>
-          <figcaption className={styles.caption}>{price.formulaCaption}</figcaption>
-          <dl className={own.formula}>
-            {price.formula.map((f) => (
-              <div key={f.label} className={own.formulaRow}>
-                <dt>{f.label}</dt>
-                <dd>{f.value}</dd>
-              </div>
-            ))}
-          </dl>
-          {summary && summary.population > 0 && (
-            <p className={styles.footnote}>
-              Across all {summary.scans} saved scans: {formatPopulation(summary.population)} people for about{" "}
-              {formatCost(summary.costUsd)}, or {usd(summary.costUsd / summary.population)} per person.
-              <Cite id="hestia" />
-            </p>
-          )}
-        </figure>
-
-        <div className={styles.callout}>
-          <p>{price.caveat}</p>
-        </div>
-      </Section>
-
-      <section className={styles.closing}>
-        <div className="container">
-          <h2 className={styles.h2}>{closing.title}</h2>
-          <p className={styles.body}>{closing.body}</p>
-          <div className={styles.ctas}>
-            <Link href={closing.primaryCta.href} className="btn btn-primary">
-              {closing.primaryCta.label}
-            </Link>
-            <Link href={closing.secondaryCta.href} className="btn btn-secondary">
-              {closing.secondaryCta.label}
-            </Link>
-          </div>
-          <HelpScanPrompt message={closing.scan} />
-        </div>
-      </section>
 
       <section id="sources" className={styles.sources}>
         <div className="container">

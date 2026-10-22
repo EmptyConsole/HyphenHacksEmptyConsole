@@ -1,0 +1,287 @@
+/* Diagram styles only. Layout, type and cards come from ProblemPage.module.css. */
+
+.diagram {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.panelTitle {
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+  fill: var(--color-text);
+}
+
+.mapLabel {
+  font-size: 12px;
+  fill: var(--color-text-secondary);
+}
+
+.clinicMark circle {
+  fill: var(--color-constellation-soft);
+  stroke: var(--color-constellation);
+  stroke-width: 2;
+}
+
+.clinicMark path {
+  stroke: var(--color-constellation);
+  stroke-width: 2.5;
+}
+
+/* ---------- Map vs. satellite ---------- */
+
+.mapBg {
+  fill: var(--color-bg-elevated);
+  stroke: var(--color-border);
+}
+
+.mapRoad {
+  fill: none;
+  stroke: var(--color-border-strong);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.mapTown {
+  fill: var(--color-surface-hover);
+  stroke: var(--color-border-strong);
+}
+
+.satBg {
+  fill: #18211c;
+}
+
+.satTree {
+  fill: #2c4a35;
+}
+
+.satRoad {
+  fill: none;
+  stroke: #5a5246;
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.satTrack {
+  fill: none;
+  stroke: #4d453a;
+  stroke-width: 2.5;
+  stroke-dasharray: 5 4;
+}
+
+.satTown {
+  fill: var(--color-text-tertiary);
+}
+
+.satRoofs {
+  fill: var(--data-4);
+}
+
+.found {
+  fill: none;
+  stroke: var(--data-4);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  opacity: 0;
+  transition: opacity var(--duration-slower) var(--ease-standard);
+}
+
+[data-visible] .found {
+  opacity: 0.9;
+}
+
+.foundLabel {
+  font-weight: var(--weight-regular);
+  fill: var(--data-4);
+}
+
+/* ---------- Shortest vs. cheapest route ---------- */
+
+.shortRoute,
+.cheapRoute {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.shortRoute {
+  stroke: var(--data-3);
+  stroke-width: 3;
+  stroke-dasharray: 9 7;
+}
+
+.cheapRoute {
+  stroke: var(--color-constellation);
+  stroke-width: 4;
+}
+
+.routeLabel {
+  font-size: 13px;
+  fill: var(--color-text-secondary);
+}
+
+.shortLabel {
+  font-weight: var(--weight-semibold);
+  fill: var(--data-3);
+}
+
+.cheapLabel {
+  font-weight: var(--weight-semibold);
+  fill: var(--color-constellation);
+}
+
+/* ---------- Travel-time waffle ---------- */
+
+.waffleWrap {
+  display: grid;
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: center;
+}
+
+.waffle {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 4px;
+}
+
+.cell {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  transform: scale(0);
+  transition: transform var(--duration-slow) var(--ease-standard);
+  transition-delay: calc(var(--i) * 8ms);
+}
+
+[data-visible] .cell {
+  transform: scale(1);
+}
+
+.cell[data-tone="byCar"] { background: var(--data-3); }
+.cell[data-tone="onFoot"] { background: var(--data-4); }
+.cell[data-tone="near"] { background: rgba(255, 255, 255, 0.08); }
+
+.waffleKey {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  list-style: none;
+}
+
+.waffleKey li {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 3px solid;
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+}
+
+.waffleKey strong {
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.waffleKey li[data-tone="byCar"] { border-color: var(--data-3); }
+.waffleKey li[data-tone="onFoot"] { border-color: var(--data-4); }
+.waffleKey li[data-tone="near"] { border-color: rgba(255, 255, 255, 0.16); }
+
+/* ---------- Funding chain ---------- */
+
+.chain {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  list-style: none;
+  counter-reset: chain;
+}
+
+.chainStep {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-border);
+  counter-increment: chain;
+}
+
+.chainStep::before {
+  content: "0" counter(chain);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--data-3);
+}
+
+.chainStep:last-child {
+  border-color: var(--data-3);
+  background: rgba(227, 140, 91, 0.08);
+}
+
+.chainStep:not(:last-child)::after {
+  content: "→";
+  position: absolute;
+  top: 50%;
+  right: calc(var(--space-3) * -1);
+  width: var(--space-3);
+  transform: translateY(-50%);
+  text-align: center;
+  font-size: var(--text-small);
+  color: var(--color-text-tertiary);
+}
+
+.chainTitle {
+  font-weight: var(--weight-semibold);
+}
+
+.chainText {
+  font-size: var(--text-small);
+  color: var(--color-text-secondary);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 600px) {
+  .waffleWrap {
+    grid-template-columns: 1fr;
+  }
+
+  .waffle {
+    max-width: 15rem;
+  }
+
+  .chain {
+    grid-template-columns: 1fr;
+    gap: var(--space-5);
+  }
+
+  .chainStep:not(:last-child)::after {
+    content: "↓";
+    top: auto;
+    right: auto;
+    bottom: calc(var(--space-5) * -1);
+    left: 50%;
+    width: auto;
+    height: var(--space-5);
+    transform: translateX(-50%);
+    line-height: var(--space-5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell {
+    transform: none;
+    transition: none;
+  }
+
+  .found {
+    opacity: 0.9;
+    transition: none;
+  }
+}

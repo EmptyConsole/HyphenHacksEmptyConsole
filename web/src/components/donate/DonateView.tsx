@@ -122,7 +122,7 @@ export default function DonateView() {
       <section className={styles.section} aria-labelledby="why-it-matters">
         <div className={styles.sectionHeader}>
           <h2 id="why-it-matters">The need</h2>
-          <p>Published counts for rural life, health coverage, and children who received no vaccine.</p>
+          <p>These are the real numbers on rural people, health coverage and kids who never got a vaccine.</p>
         </div>
         <div className={styles.facts}>
           {donateContent.facts.map((fact) => (
@@ -169,7 +169,7 @@ export default function DonateView() {
         <div className={styles.sectionHeader}>
           <h2 id="choose-title">Choose a government</h2>
           <p>
-            These 25 governments are where rural people are still widely without care. The first option is recommended: the one on this list with the most people living in rural areas.
+            In these 25 countries a lot of rural people still can&apos;t get health care. We&apos;d go with the first one since it has the most rural people on the list.
           </p>
         </div>
 
@@ -201,7 +201,7 @@ export default function DonateView() {
 
             {isRecommended && recommended && (
               <p className={styles.recommend}>
-                <strong>Recommended: {recommended.name}.</strong> Among these governments, it has the most people living in rural areas: {formatCount(recommended.rural)} in {recommended.year} (World Bank).
+                <strong>Recommended: {recommended.name}.</strong> The World Bank counted {formatCount(recommended.rural)} people living in rural areas there in {recommended.year}, more than any other country on this list.
               </p>
             )}
 
@@ -257,11 +257,11 @@ export default function DonateView() {
               <h3 id="impact-title">Impact</h3>
               <p>
                 {amountReady
-                  ? `${formatDollars(amount)} is directed to ${selected.name}, where ${formatCount(selected.rural)} people live in rural areas (World Bank, ${selected.year}).`
+                  ? `${formatDollars(amount)} would go to ${selected.name}, where ${formatCount(selected.rural)} people live in rural areas (World Bank, ${selected.year}).`
                   : "Enter a gift of at least $1."}
               </p>
               <p>
-                In 2025, 13.5 million babies worldwide got no vaccine in their first year of life (WHO and UNICEF). This gift pays to find villages missing from official maps in {selected.name}, plan the path from the nearest clinic, and carry vaccines there.
+                In 2025, 13.5 million babies around the world didn&apos;t get a single vaccine in their first year (WHO and UNICEF). Your gift helps us find villages in {selected.name} that the official maps missed and get vaccines out to them from the closest clinic.
               </p>
             </section>
 
@@ -277,9 +277,9 @@ export default function DonateView() {
                 </button>
               </div>
               <p>
-                {formatDollars(amountReady ? amount : 0)} is directed to {selected.name}, where {formatCount(selected.rural)} people live in rural areas (World Bank, {selected.year}). It pays to find villages missing from official maps, plan the path from the nearest clinic, and carry vaccines there.
+                {formatDollars(amountReady ? amount : 0)} would go to {selected.name}, where {formatCount(selected.rural)} people live in rural areas (World Bank, {selected.year}). We&apos;d use it to find villages the maps missed and get vaccines to them from the nearest clinic.
               </p>
-              <p className={styles.fine}>Placeholder. This does not charge a card.</p>
+              <p className={styles.fine}>This is just a placeholder for now, it won&apos;t charge your card.</p>
             </dialog>
           </div>
         )}
@@ -291,7 +291,7 @@ export default function DonateView() {
           <div className={styles.sectionHeader}>
             <h2 id="all-governments">Governments in need</h2>
             <p>
-              Rural people is the World Bank count of people living in rural areas in 2025. These are published totals for each country.
+              &ldquo;Rural people&rdquo; means how many people lived in rural areas in each country in 2025, going by the World Bank.
             </p>
           </div>
           <label className={styles.field} htmlFor={searchId}>
