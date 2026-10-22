@@ -98,7 +98,6 @@ export default function ProblemPage() {
           <figure>
             <figcaption className={styles.caption}>{location.mapCaption}</figcaption>
             <MapGap />
-            <p className={styles.footnote}>{location.mapNote}</p>
           </figure>
         </Reveal>
 
@@ -119,7 +118,6 @@ export default function ProblemPage() {
                 </li>
               ))}
             </ul>
-            <p className={styles.footnote}>{location.caveat}</p>
           </figure>
         </Reveal>
       </Section>
@@ -138,7 +136,6 @@ export default function ProblemPage() {
         <figure className={styles.card}>
           <figcaption className={styles.caption}>{routes.routeCaption}</figcaption>
           <RouteChoice {...routes.route} />
-          <p className={styles.footnote}>{routes.routeNote}</p>
         </figure>
       </Section>
 
