@@ -48,7 +48,7 @@ export const solutionContent = {
   eyebrow: "The solution",
   title: "Solution",
   subtitle:
-    "Many villages are not on any map. Hestia looks for them in satellite photos. Then it works out the cheapest way for a health team to get there from the closest clinic.",
+    "Find the villages, routes to get to them, and give a cost estimate.",
 
   find: {
     eyebrow: "01 · Find",
