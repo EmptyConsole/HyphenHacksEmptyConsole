@@ -59,18 +59,31 @@ export const solutionContent = {
 
   find: {
     eyebrow: "01 · Find",
-    title: "Satellites see the roofs",
+    title: "Satellites find the roofs maps forgot",
     body: [
       {
-        text: "In a 2025 study of 307 rural areas, even the best global population map missed about half of the people, but their roofs still show up in satellite photos.",
+        //In a 2025 study of 307 rural areas, even the best global population map missed
+        // about half of the people, but their roofs still show up in satellite photos.
+        text: "A study in 2025 missed half the population in the rural areas they scanned, but their roofs can be found in satellite photos",
         cite: ["nature"],
       },
       {
-        text: "Microsoft traces building outlines from satellite photos with a machine learning model and shares them under the Open Database License. Hestia loads the ones inside each 4 x 4 km scan box. Buildings less than 50 m apart join into one settlement. A building under 10 m² counts as zero homes, and one over 150 m² counts as one home for every 150 m².",
+        //Microsoft traces building outlines from satellite photos with a machine learning
+        // model and shares them under the Open Database License.
+        // Hestia loads the ones inside each 4 x 4 km scan box.
+        // Buildings less than 50 m apart join into one settlement.
+        // A building under 10 m² counts as zero homes,
+        // and one over 150 m² counts as one home for every 150 m².
+        text: "Hestia uses Microsoft building outline data as a first pass over an area. Learn more about how they are grouped in the Algorithm page.",
         cite: ["microsoft"],
       },
       {
-        text: "Where Microsoft has no data, Hestia downloads pictures from Esri World Imagery Wayback tiles at zoom 17, about 1.2 m per pixel. A house there is 4 to 6 pixels wide. Hestia keeps pixels with roof colors, joins roofs within about 30 m of each other and drops blobs under about 500 m². There it counts 5 people per roof, or 5 per 250 m² of settlement if that is more.",
+        //Where Microsoft has no data, Hestia downloads pictures from Esri World Imagery Wayback
+        // tiles at zoom 17, about 1.2 m per pixel. A house there is 4 to 6 pixels wide.
+        // Hestia keeps pixels with roof colors, joins roofs within about 30 m of each other
+        // and drops blobs under about 500 m². There it counts 5 people per roof, or 5 per 250 m²
+        // of settlement if that is more.
+        text: "Commonly, Microsoft won't have data for a majority of the rural areas, so Hestia downloads images from the Esire World Imagery Wayback, which we run our custom algorithm over.",
         cite: ["esri"],
       },
     ] satisfies Paragraph[],
@@ -78,19 +91,19 @@ export const solutionContent = {
     steps: [
       {
         title: "Find the roofs",
-        text: "Microsoft's building outlines, or roofs found by color where Microsoft has none.",
+        text: "Microsoft outlines by default, but resorts to satellite without it.",
       },
       {
-        title: "Put them on a grid",
-        text: "Each building is drawn on a grid of 3 m squares.",
+        title: "Separate from surroundings",
+        text: "Each building is drawn on a grid to remove everything but the homes.",
       },
       {
         title: "Join neighbors",
-        text: "Buildings less than about 50 m apart become one settlement.",
+        text: "Nearby buildings are combined into a settlement.",
       },
       {
         title: "Trace the outline",
-        text: "Groups that are only sheds or granaries are removed, because nobody lives in them.",
+        text: "To display, we outline them to make them easy to see.",
       },
     ],
     facts: [
@@ -109,15 +122,21 @@ export const solutionContent = {
     title: "Most of Hestia's settlements have't been mapped",
     body: [
       {
-        text: "Hestia checks each outline against OpenStreetMap. A village, hamlet, town, suburb or lone homestead nearby confirms the settlement with a certainty of 100.",
+        //Hestia checks each outline against OpenStreetMap. A village, hamlet, town, suburb or
+        // lone homestead nearby confirms the settlement with a certainty of 100.
+        text: "To be sure, Hestia compares it's results with OpenStreetMap to check for neighboring homes, outputting a certainty of 100.",
         cite: ["osm"],
       },
       {
-        text: "Without a match, the certainty is built from three parts and tops out at 99. Building count is worth 45 points, compactness 30 and building cover 25. With the color backup, building cover means the share of the outline that looks like roof.",
+        //Without a match, the certainty is built from three parts and tops out at 99.
+        // Building count is worth 45 points, compactness 30 and building cover 25.
+        // With the color backup, building cover means the share of the outline that looks like roof.
+        text: "If OpenStreetMap doesn't return anything nearby we limit our certainty to 99 and use three signs of a settlement to build that value. Building count, compactness, and building cover (the amount of outline that looks like roof).",
       },
     ] satisfies Paragraph[],
     matchCaption:
-      "Settlements in our saved scans, split by whether OpenStreetMap has a place there",
+      //Settlements in our saved scans, split by whether OpenStreetMap has a place there
+      "The split of our scans by whether OpenStreetMap returns a nearby home.",
     scoreCaption:
       "Scoring a settlement OpenStreetMap doesn't know about (0-99)",
     score: [
@@ -134,8 +153,6 @@ export const solutionContent = {
           "full points at 15% of the outline (35% roof pixels with the color backup)",
       },
     ],
-    caveat:
-      "Mistakes happen. Microsoft's model and the color rules sometimes think rocks, bare fields or farm sheds are buildings. A health team should check any settlement under 100 before calling it a village.",
     scan: "Most of these places have no name yet. Help us scan a region.",
   },
 
