@@ -153,7 +153,6 @@ export const solutionContent = {
           "full points at 15% of the outline (35% roof pixels with the color backup)",
       },
     ],
-    scan: "Most of these places have no name yet. Help us scan a region.",
   },
 
   reach: {
