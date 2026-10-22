@@ -131,10 +131,6 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
             </p>
           </figure>
         </Reveal>
-
-        <div className={styles.callout}>
-          <p>{check.caveat}</p>
-        </div>
       </Section>
 
       <Section {...reach}>
