@@ -7,7 +7,12 @@
 
 export type SourceId = "hestia" | "nature" | "microsoft" | "esri" | "osm";
 
-export const sources: { id: SourceId; label: string; detail: string; href: string }[] = [
+export const sources: {
+  id: SourceId;
+  label: string;
+  detail: string;
+  href: string;
+}[] = [
   {
     id: "hestia",
     label: "Hestia: saved detector scans (this project)",
@@ -25,19 +30,22 @@ export const sources: { id: SourceId; label: string; detail: string; href: strin
   {
     id: "microsoft",
     label: "Microsoft: Global ML Building Footprints",
-    detail: "Building outlines traced from satellite imagery by a machine learning model. Open Database License.",
+    detail:
+      "Building outlines traced from satellite imagery by a machine learning model. Open Database License.",
     href: "https://github.com/microsoft/GlobalMLBuildingFootprints",
   },
   {
     id: "esri",
     label: "Esri: World Imagery",
-    detail: "One meter or better satellite and aerial imagery for most of the world's landmass. Esri, Vantor, Earthstar Geographics and the GIS User Community.",
+    detail:
+      "One meter or better satellite and aerial imagery for most of the world's landmass. Esri, Vantor, Earthstar Geographics and the GIS User Community.",
     href: "https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9",
   },
   {
     id: "osm",
     label: "OpenStreetMap contributors: places, health facilities and roads",
-    detail: "Queried through the Overpass API. Data © OpenStreetMap contributors, available under the Open Database License.",
+    detail:
+      "Queried through the Overpass API. Data © OpenStreetMap contributors, available under the Open Database License.",
     href: "https://www.openstreetmap.org/copyright",
   },
 ];
@@ -47,36 +55,50 @@ type Paragraph = { text: string; cite?: SourceId[] };
 export const solutionContent = {
   eyebrow: "The solution",
   title: "Solution",
-  subtitle:
-    "Find the villages, routes to get to them, and give a cost estimate.",
+  subtitle: "Finds settlements, a route, and cost.",
 
   find: {
     eyebrow: "01 · Find",
-    title: "Satellites can see the roofs",
+    title: "Satellites see the roofs",
     body: [
       {
-        text: "In a 2025 study of 307 rural areas, even the best global population map missed about half of the people, because the census counts behind it missed them too. Their roofs still show up in satellite photos.",
+        text: "In a 2025 study of 307 rural areas, even the best global population map missed about half of the people, but their roofs still show up in satellite photos.",
         cite: ["nature"],
       },
       {
-        text: "Microsoft traced building outlines from satellite photos with a machine learning model and shares them under the Open Database License. Hestia loads the ones inside each 4 × 4 km scan box. Buildings less than 50 m apart join into one settlement. A building under 10 m² counts as zero homes, and one over 150 m² counts as one home for every 150 m².",
+        text: "Microsoft traces building outlines from satellite photos with a machine learning model and shares them under the Open Database License. Hestia loads the ones inside each 4 x 4 km scan box. Buildings less than 50 m apart join into one settlement. A building under 10 m² counts as zero homes, and one over 150 m² counts as one home for every 150 m².",
         cite: ["microsoft"],
       },
       {
-        text: "Where Microsoft has no data, Hestia downloads Esri tiles at zoom 17, about 1.2 m per pixel. A house there is 4 to 6 pixels wide. Hestia keeps pixels with roof colors, joins roofs within about 30 m of each other and drops blobs under about 500 m². There it counts 5 people per roof, or 5 per 250 m² of settlement if that is more.",
+        text: "Where Microsoft has no data, Hestia downloads pictures from Esri World Imagery Wayback tiles at zoom 17, about 1.2 m per pixel. A house there is 4 to 6 pixels wide. Hestia keeps pixels with roof colors, joins roofs within about 30 m of each other and drops blobs under about 500 m². There it counts 5 people per roof, or 5 per 250 m² of settlement if that is more.",
         cite: ["esri"],
       },
     ] satisfies Paragraph[],
-    stepsCaption: "From buildings to settlement outlines",
+    stepsCaption: "From satellite to settlement",
     steps: [
-      { title: "Get the buildings", text: "Microsoft's building outlines, or roofs found by color where Microsoft has none." },
-      { title: "Put them on a grid", text: "Each building is drawn on a grid of 3 m squares." },
-      { title: "Join neighbors", text: "Buildings less than about 50 m apart become one settlement." },
-      { title: "Trace the outline", text: "Groups that are only sheds or granaries are removed, because nobody lives in them." },
+      {
+        title: "Find the roofs",
+        text: "Microsoft's building outlines, or roofs found by color where Microsoft has none.",
+      },
+      {
+        title: "Put them on a grid",
+        text: "Each building is drawn on a grid of 3 m squares.",
+      },
+      {
+        title: "Join neighbors",
+        text: "Buildings less than about 50 m apart become one settlement.",
+      },
+      {
+        title: "Trace the outline",
+        text: "Groups that are only sheds or granaries are removed, because nobody lives in them.",
+      },
     ],
     facts: [
-      { value: "50 m", label: "largest gap between buildings in one settlement" },
-      { value: "16 km²", label: "per scan, about 4 × 4 km" },
+      {
+        value: "50 m",
+        label: "largest gap between buildings in one settlement",
+      },
+      { value: "16 km²", label: "per scan, about 4 x 4 km" },
       { value: "4.7", label: "people per home (average household in Nigeria)" },
     ],
     scan: "Want to see what a scan finds? Help us scan a region.",
@@ -84,22 +106,33 @@ export const solutionContent = {
 
   check: {
     eyebrow: "02 · Check",
-    title: "Most of what we find isn't on the map yet",
+    title: "Most of Hestia's settlements have't been mapped",
     body: [
       {
-        text: "Hestia checks each outline against OpenStreetMap. A village, hamlet, town, suburb or lone homestead inside it or within 150 m confirms the settlement, with a certainty of 100. The place doesn't need a name.",
+        text: "Hestia checks each outline against OpenStreetMap. A village, hamlet, town, suburb or lone homestead nearby confirms the settlement with a certainty of 100.",
         cite: ["osm"],
       },
       {
         text: "Without a match, the certainty is built from three parts and tops out at 99. Building count is worth 45 points, compactness 30 and building cover 25. With the color backup, building cover means the share of the outline that looks like roof.",
       },
     ] satisfies Paragraph[],
-    matchCaption: "Settlements in our saved scans, split by whether OpenStreetMap has a place there",
-    scoreCaption: "Scoring a settlement OpenStreetMap doesn't know about (0–99)",
+    matchCaption:
+      "Settlements in our saved scans, split by whether OpenStreetMap has a place there",
+    scoreCaption:
+      "Scoring a settlement OpenStreetMap doesn't know about (0-99)",
     score: [
       { label: "Buildings", points: 45, detail: "full points at 8 buildings" },
-      { label: "Compact shape", points: 30, detail: "full points at 0.45 (a circle is 1)" },
-      { label: "Area covered by buildings", points: 25, detail: "full points at 15% of the outline (35% roof pixels with the color backup)" },
+      {
+        label: "Compact shape",
+        points: 30,
+        detail: "full points at 0.45 (a circle is 1)",
+      },
+      {
+        label: "Area covered by buildings",
+        points: 25,
+        detail:
+          "full points at 15% of the outline (35% roof pixels with the color backup)",
+      },
     ],
     caveat:
       "Mistakes happen. Microsoft's model and the color rules sometimes think rocks, bare fields or farm sheds are buildings. A health team should check any settlement under 100 before calling it a village.",
@@ -121,7 +154,8 @@ export const solutionContent = {
         text: "Each trip also gets a difficulty score from 0 to 100. Half of the score is how far the settlement is from a road. The other half is how long the trip is and how much of it is on rough ground.",
       },
     ] satisfies Paragraph[],
-    routeCaption: "Hestia tries the three nearest clinics and keeps the cheapest trip",
+    routeCaption:
+      "Hestia tries the three nearest clinics and keeps the cheapest trip",
     rateCaption: "Travel cost per kilometer, by OpenStreetMap road type (US$)",
     rates: [
       { label: "Motorway", value: 1.2 },
@@ -156,9 +190,13 @@ export const solutionContent = {
       },
     ] satisfies Paragraph[],
     diagramCaption: "One team, one loop out of the clinic and back",
-    diagramNote: "This is only a drawing. The real loops are on the map. The faint loop goes to the cheapest next village each time and crosses itself. The bright loop visits the same villages after 2-opt.",
+    diagramNote:
+      "This is only a drawing. The real loops are on the map. The faint loop goes to the cheapest next village each time and crosses itself. The bright loop visits the same villages after 2-opt.",
     facts: [
-      { value: "1", label: "team and one round trip per clinic, across all its scan areas" },
+      {
+        value: "1",
+        label: "team and one round trip per clinic, across all its scan areas",
+      },
       { value: "30+", label: "certainty before a settlement becomes a stop" },
     ],
     scan: "One team, one loop. Help us scan a region.",
