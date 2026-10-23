@@ -209,7 +209,7 @@ export const solutionContent = {
         // leaves the clinic that most of the settlements route from, visits every settlement
         // and comes back. If no clinic was found, the trip starts at the settlement closest
         // to a road.
-        text: "Plotting and following a route to each settlement means the health team would need to traverse the same road many, many times. To counteract this, Hestia plots a trip through all settlements (with high certanty scores) in a scan so the health team can minimize cost.",
+        text: "Plotting and following a route to each settlement means the health team would need to traverse the same road many, many times. To counteract this, Hestia plots a trip through all settlements (with high certainty scores) in a scan so the health team can minimize cost.",
       },
       {
         //Scan areas whose trips start at the same clinic are then joined
