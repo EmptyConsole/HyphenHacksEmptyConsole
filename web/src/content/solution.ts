@@ -64,7 +64,7 @@ export const solutionContent = {
       {
         //In a 2025 study of 307 rural areas, even the best global population map missed
         // about half of the people, but their roofs still show up in satellite photos.
-        text: "A study in 2025 missed half the population in the rural areas they scanned, but their roofs can be found in satellite photos",
+        text: "A study in 2025 showed that the best population maps in the world today still miss over half the population in the rural areas that they claim to have data for. Instead of using these population maps, it is much safer to just find the roofs in a rural area through satellite imagery and computer vision.",
         cite: ["nature"],
       },
       {
@@ -83,7 +83,7 @@ export const solutionContent = {
         // Hestia keeps pixels with roof colors, joins roofs within about 30 m of each other
         // and drops blobs under about 500 m². There it counts 5 people per roof, or 5 per 250 m²
         // of settlement if that is more.
-        text: "Commonly, Microsoft won't have data for a majority of the rural areas, so Hestia downloads images from the Esire World Imagery Wayback, which we run our custom algorithm over.",
+        text: "When Microsoft doesn't have data for a scan, Hestia downloads images from the Esri World Imagery Wayback, whose photos we run our custom algorithm over.",
         cite: ["esri"],
       },
     ] satisfies Paragraph[],
@@ -119,12 +119,12 @@ export const solutionContent = {
 
   check: {
     eyebrow: "02 · Check",
-    title: "Most of Hestia's settlements have't been mapped",
+    title: "Most of Hestia's settlements haven't been mapped",
     body: [
       {
         //Hestia checks each outline against OpenStreetMap. A village, hamlet, town, suburb or
         // lone homestead nearby confirms the settlement with a certainty of 100.
-        text: "To be sure, Hestia compares it's results with OpenStreetMap to check for neighboring homes, outputting a certainty of 100.",
+        text: "To be sure, Hestia compares its results with OpenStreetMap to check for neighboring homes, outputting a certainty of 100.",
         cite: ["osm"],
       },
       {
@@ -209,13 +209,13 @@ export const solutionContent = {
         // leaves the clinic that most of the settlements route from, visits every settlement
         // and comes back. If no clinic was found, the trip starts at the settlement closest
         // to a road.
-        text: "Plotting and following a route to each settlement means the health team would need to traverse the same road many, many times. To counteract this, Hestia plots a trip through all settlements in a scan (that route from the same clinic) and back, so the health team can minimize cost while visiting as many settlements as possible.",
+        text: "Plotting and following a route to each settlement means the health team would need to traverse the same road many, many times. To counteract this, Hestia plots a trip through all settlements in a scan (with a shared clinic) and back, so the health team can minimize cost while visiting as many settlements as possible.",
       },
       {
         //Scan areas whose trips start at the same clinic are then joined
         // into one trip from that clinic, even if they are far apart.
         // That trip is planned again every time a new scan is saved.
-        text: "This trip is replanned everytime a new scan is saved nearby to make sure it is 100% optimal.",
+        text: "This trip is replanned every time a new scan is saved nearby to make sure it is as optimal as we can make it.",
       },
     ] satisfies Paragraph[],
     diagramCaption: "One team, one loop out of the clinic and back",
