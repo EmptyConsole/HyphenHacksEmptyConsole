@@ -18,7 +18,7 @@ export const algorithmContent = {
   eyebrow: "The algorithm",
   title: "Algorithm",
   subtitle:
-    "You draw a box on the map and Hestia turns it into one route a team can drive to get to every likely village inside it. There are seven steps. We get the building outlines from Microsoft's building map, and after that it's honestly just simple rules about shape, distance and whatever roads OpenStreetMap already has.",
+    "Seven steps. One groundbreaking algorithm.",
   scanSteps: "Want to watch it run for real? Help us scan a region.",
   scanSource: "Every scan runs this file. Help us scan a region!",
   steps: [
