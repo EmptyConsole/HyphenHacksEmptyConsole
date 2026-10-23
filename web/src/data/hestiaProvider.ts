@@ -359,7 +359,6 @@ async function ensureScans() {
 
 export const hestiaProvider: MapDataProvider = {
   async getCountries() {
-    await ensureScans();
     countriesCache ??= buildCountries();
     return countriesCache;
   },

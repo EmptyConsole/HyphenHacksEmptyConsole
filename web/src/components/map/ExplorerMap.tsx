@@ -835,10 +835,12 @@ export default function ExplorerMap() {
 
   // ---- Poll for scans saved by scan-batch.js or a live scan ----
   useEffect(() => {
-    const timer = setInterval(async () => {
+    const refreshScans = async () => {
       const changed = await dataProvider.refresh().catch(() => false);
       if (changed) setDataVersion((v) => v + 1);
-    }, baselineConfig.pollMs);
+    };
+    void refreshScans();
+    const timer = setInterval(() => void refreshScans(), baselineConfig.pollMs);
     return () => clearInterval(timer);
   }, []);
 

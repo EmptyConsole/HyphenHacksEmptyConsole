@@ -44,7 +44,9 @@ function Section({
           {body.map((p) => (
             <p key={p.text} className={styles.body}>
               {p.text}
-              {p.cite?.map((id) => <Cite key={id} id={id} />)}
+              {p.cite?.map((id) => (
+                <Cite key={id} id={id} />
+              ))}
             </p>
           ))}
         </header>
@@ -55,7 +57,11 @@ function Section({
 }
 
 /** `summary` is null in the prerendered shell, before the saved scans are read. */
-export default function SolutionPage({ summary }: { summary: ScanSummary | null }) {
+export default function SolutionPage({
+  summary,
+}: {
+  summary: ScanSummary | null;
+}) {
   const { find, check, reach, tour } = solutionContent;
   const osmMatched = summary?.osmMatched ?? 0;
   const satelliteOnly = summary ? summary.settlements - summary.osmMatched : 0;
@@ -71,7 +77,9 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
 
       <Section {...find}>
         <figure className={styles.card}>
-          <figcaption className={styles.caption}>{find.stepsCaption}</figcaption>
+          <figcaption className={styles.caption}>
+            {find.stepsCaption}
+          </figcaption>
           <DetectSteps steps={find.steps} />
         </figure>
         <ul className={styles.facts}>
@@ -92,8 +100,14 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
               <Cite id="hestia" />
             </figcaption>
             <div className={own.split}>
-              <span className={`${own.splitPart} ${styles.fillUrban}`} style={{ flexGrow: osmMatched }} />
-              <span className={`${own.splitPart} ${styles.fillMissing}`} style={{ flexGrow: satelliteOnly }} />
+              <span
+                className={`${own.splitPart} ${styles.fillUrban}`}
+                style={{ flexGrow: osmMatched }}
+              />
+              <span
+                className={`${own.splitPart} ${styles.fillMissing}`}
+                style={{ flexGrow: satelliteOnly }}
+              />
             </div>
             <ul className={own.splitKey}>
               <li>
@@ -110,10 +124,17 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
 
         <Reveal className={styles.card}>
           <figure>
-            <figcaption className={styles.caption}>{check.scoreCaption}</figcaption>
+            <figcaption className={styles.caption}>
+              {check.scoreCaption}
+            </figcaption>
             <div className={own.stack}>
               {check.score.map((s, i) => (
-                <span key={s.label} className={own.stackPart} data-tone={i} style={{ flexGrow: s.points }}>
+                <span
+                  key={s.label}
+                  className={own.stackPart}
+                  data-tone={i}
+                  style={{ flexGrow: s.points }}
+                >
                   {s.points}
                 </span>
               ))}
@@ -127,7 +148,8 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
               ))}
             </ul>
             <p className={styles.footnote}>
-              That adds up to {scoreTotal} points. The score stops at 99, because only an OpenStreetMap match can reach 100.
+              That adds up to {scoreTotal} points. The score stops at 99,
+              because only an OpenStreetMap match can reach 100.
             </p>
           </figure>
         </Reveal>
@@ -135,9 +157,10 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
 
       <Section {...reach}>
         <figure className={styles.card}>
-          <figcaption className={styles.caption}>{reach.routeCaption}</figcaption>
+          <figcaption className={styles.caption}>
+            {reach.routeCaption}
+          </figcaption>
           <RouteDiagram />
-          <p className={styles.footnote}>This is only an example. The real route for every settlement is on the map.</p>
         </figure>
 
         <Reveal className={styles.card}>
@@ -167,18 +190,11 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
 
       <Section {...tour}>
         <figure className={styles.card}>
-          <figcaption className={styles.caption}>{tour.diagramCaption}</figcaption>
+          <figcaption className={styles.caption}>
+            {tour.diagramCaption}
+          </figcaption>
           <TourDiagram />
-          <p className={styles.footnote}>{tour.diagramNote}</p>
         </figure>
-        <ul className={styles.facts}>
-          {tour.facts.map((f) => (
-            <li key={f.label} className={styles.fact}>
-              <span className={styles.factValue}>{f.value}</span>
-              <span className={styles.factLabel}>{f.label}</span>
-            </li>
-          ))}
-        </ul>
       </Section>
 
       <section id="sources" className={styles.sources}>
@@ -189,7 +205,10 @@ export default function SolutionPage({ summary }: { summary: ScanSummary | null 
               <li key={s.id} id={`source-${i + 1}`}>
                 <a
                   href={s.href}
-                  {...(s.href.startsWith("http") && { target: "_blank", rel: "noreferrer" })}
+                  {...(s.href.startsWith("http") && {
+                    target: "_blank",
+                    rel: "noreferrer",
+                  })}
                 >
                   {s.label}
                 </a>
