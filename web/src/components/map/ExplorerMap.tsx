@@ -45,7 +45,10 @@ import {
   onAutoScan,
   peekAutoscanOnLoad,
 } from "@/lib/autoscan";
-import { formatCost, formatPopulation } from "@/lib/format";
+import { CURRENCIES, isCurrency } from "@/lib/currency";
+import { currencyOptionLabel } from "@/i18n/place";
+import { useLocale } from "@/i18n/LocaleProvider";
+import { useMapMoney } from "./MapMoney";
 import { tileCount } from "@/lib/tiles";
 import { pickUnscannedArea, scanZoom, type UnscannedTarget } from "@/lib/unscanned";
 import {
@@ -72,6 +75,7 @@ import {
   explainTour,
   explainVillage,
   formatLatLon,
+  type ExplainCopy,
   type Explanation,
   type PanelContext,
   type StatKey,
@@ -84,7 +88,7 @@ maplibregl.setWorkerUrl("/vendor/maplibre-gl-worker.mjs");
 
 const WORLD_VIEW = { center: [18, 12] as [number, number], zoom: 1.9 };
 const EMPTY = featureCollection([]);
-const LEVEL_LABEL = ["World", "Country", "Region"] as const;
+const LEVEL_KEY = ["map.world", "map.country", "map.region"] as const;
 const CHILD_LABEL = ["countries", "scans", "villages"] as const;
 /** Inside a scanned country the children are scans; inside a scan they are settlements. */
 const DETECTED_CHILD_LABEL = ["countries", "scans", "settlements"] as const;
@@ -315,12 +319,31 @@ function propsForScan(s: ScanMeta): AreaProperties {
 }
 
 /** Team-route cost for a scan. Country totals are omitted. Other areas keep their own cost. */
-function formatHoverCost(props: AreaProperties): string | null {
+const SCAN_ERROR_CODES = new Set([
+  "tooLarge",
+  "noArea",
+  "noCountry",
+  "overpass",
+  "tiles",
+  "timeout",
+  "failed",
+  "busy",
+  "invalidBox",
+  "badNumbers",
+  "missingCountry",
+  "tooManyTiles",
+]);
+
+function scanErrorText(message: string, t: ExplainCopy["t"]) {
+  return SCAN_ERROR_CODES.has(message) ? t(`map.errors.${message}`) : message;
+}
+
+function formatHoverCost(props: AreaProperties, copy: ExplainCopy): string | null {
   if (props.level === "country") return null;
   if (props.level === "region" && props.data_source === "detected") {
-    return props.tour_cost == null ? "–" : formatCost(props.tour_cost);
+    return props.tour_cost == null ? copy.t("map.explain.dash") : copy.money(props.tour_cost);
   }
-  return formatCost(props.estimated_cost);
+  return copy.money(props.estimated_cost);
 }
 
 function sum(
@@ -331,6 +354,8 @@ function sum(
 }
 
 export default function ExplorerMap() {
+  const { locale } = useLocale();
+  const { copy, currency, setCurrency } = useMapMoney();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const collectionRef = useRef<AreaCollection | null>(null);
@@ -503,7 +528,7 @@ export default function ExplorerMap() {
       pendingFly.current = null;
       if (tiles > baselineConfig.maxScanTiles) {
         helpScanRef.current = false;
-        setScan({ status: "error", message: "That view is still too large to scan. Try again." });
+        setScan({ status: "error", message: "tooLarge" });
         return;
       }
       void scanViewRef.current();
@@ -963,7 +988,7 @@ export default function ExplorerMap() {
         } else {
           setScan({
             status: "error",
-            message: "Couldn't find an unscanned area. Try again.",
+            message: "noArea",
           });
         }
       }
@@ -1066,7 +1091,7 @@ export default function ExplorerMap() {
     if (!country) {
       setScan({
         status: "error",
-        message: "Center the view on land inside a country.",
+        message: "noCountry",
       });
       return;
     }
@@ -1107,7 +1132,7 @@ export default function ExplorerMap() {
         helpScanRef.current = false;
         setScan({
           status: "error",
-          message: "Couldn't find an unscanned area. Try again.",
+          message: "noArea",
         });
         return;
       }
@@ -1173,14 +1198,14 @@ export default function ExplorerMap() {
 
   const hint =
     level === 0
-      ? "Click on a country to zoom in, or click any number to see how we got it."
+      ? copy.t("map.hintWorld")
       : level === 1
         ? detectedHere
-          ? "Click a dot to open a scan."
-          : "No scans here yet. Zoom in and use “Scan this view” to find settlements."
+          ? copy.t("map.hintCountryScans")
+          : copy.t("map.hintCountryEmpty")
         : detectedHere
-          ? "Click a settlement for details."
-          : "Click a village for details.";
+          ? copy.t("map.hintScan")
+          : copy.t("map.hintVillage");
 
   const showTourCost = level === 2 && detectedHere && !!extras?.tour;
   // A country's own total is a national estimate, not a route. Scans show the team tour instead.
@@ -1194,8 +1219,9 @@ export default function ExplorerMap() {
     : tourSummary
       ? tourSummary.costUsd + tourSummary.vaccinationUsd
       : null;
-  const costLabel = costUsd === null ? "–" : formatCost(costUsd);
-  const countLabel = detectedHere ? DETECTED_CHILD_LABEL[level] : CHILD_LABEL[level];
+  const costLabel = costUsd === null ? copy.t("map.explain.dash") : copy.money(costUsd);
+  const countKey = detectedHere ? DETECTED_CHILD_LABEL[level] : CHILD_LABEL[level];
+  const countLabel = copy.t(`map.child.${countKey}`, { count: totals.count });
 
   const exportView: ExportView | null =
     collection && !loading
@@ -1210,7 +1236,7 @@ export default function ExplorerMap() {
           collection,
           layer: extras,
           scans,
-          summary: { population: totals.population, costUsd, count: totals.count, countLabel },
+          summary: { population: totals.population, costUsd, count: totals.count, countLabel: countKey },
           selected,
         }
       : null;
@@ -1235,14 +1261,30 @@ export default function ExplorerMap() {
       <div ref={containerRef} id="map-canvas" className={styles.map} />
 
       <aside className={styles.panel} aria-live="polite">
-        <nav className={styles.crumbs} aria-label="Map level">
+        <label className={styles.currency}>
+          <span>{copy.t("map.currency")}</span>
+          <select
+            value={currency}
+            aria-label={copy.t("map.currency")}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (isCurrency(next)) setCurrency(next);
+            }}
+          >
+            {CURRENCIES.map((code) => (
+              <option key={code} value={code}>
+                {currencyOptionLabel(code, locale)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <nav className={styles.crumbs} aria-label={copy.t("map.levelNav")}>
           <button
             onClick={() => goTo(0)}
             data-current={level === 0 || undefined}
           >
-            World
+            {copy.t("map.world")}
           </button>
-          {/* With a clinic open, the facility replaces the scan in the trail. */}
           {(showingClinic ? trail.slice(0, 1) : trail).map((f, i) => (
             <span key={f.properties.id}>
               <span aria-hidden="true">/</span>
@@ -1250,7 +1292,7 @@ export default function ExplorerMap() {
                 onClick={() => goTo(i + 1)}
                 data-current={(!showingClinic && level === i + 1) || undefined}
               >
-                {f.properties.name}
+                {copy.place(f.properties.name, f.properties.id, f.properties.level)}
               </button>
             </span>
           ))}
@@ -1258,7 +1300,7 @@ export default function ExplorerMap() {
             <span>
               <span aria-hidden="true">/</span>
               <button data-current aria-current="page">
-                {clinicCard.name}
+                {copy.place(clinicCard.name)}
               </button>
             </span>
           )}
@@ -1270,7 +1312,7 @@ export default function ExplorerMap() {
           <SettlementCard
             props={selected}
             tour={extras?.tour?.summary ?? null}
-            backLabel={parentProps?.name ?? "area"}
+            backLabel={parentProps ? copy.place(parentProps.name, parentProps.id, parentProps.level) : copy.t("map.region")}
             open={explain}
             onToggle={toggleExplain}
             onClose={closeSelected}
@@ -1278,9 +1320,9 @@ export default function ExplorerMap() {
         ) : (
           <>
             <div>
-              <p className="eyebrow">{LEVEL_LABEL[level]}</p>
+              <p className="eyebrow">{copy.t(LEVEL_KEY[level])}</p>
               <h3 className={styles.title}>
-                {parentProps?.name ?? "All countries"}
+                {parentProps ? copy.place(parentProps.name, parentProps.id, parentProps.level) : copy.t("map.allCountries")}
               </h3>
               {level === 2 && parentProps?.lat !== undefined && parentProps.lon !== undefined && (
                 <button
@@ -1288,13 +1330,13 @@ export default function ExplorerMap() {
                   aria-expanded={explain === "stat:location"}
                   onClick={() => toggleExplain("stat:location")}
                 >
-                  {formatLatLon(parentProps.lat, parentProps.lon)}
+                  {formatLatLon(parentProps.lat, parentProps.lon, copy)}
                 </button>
               )}
               {parentProps && <SourceBadge props={parentProps} />}
             </div>
             {explain === "stat:location" && parentProps && (
-              <ExplainBox explanation={explainScanLocation(parentProps)} />
+              <ExplainBox explanation={explainScanLocation(parentProps, copy)} />
             )}
 
             <div
@@ -1303,8 +1345,8 @@ export default function ExplorerMap() {
             >
               {(
                 [
-                  ["population", "People", formatPopulation(totals.population)],
-                  ["cost", "Cost", costLabel],
+                  ["population", copy.t("map.people"), copy.people(totals.population)],
+                  ["cost", copy.t("map.cost"), costLabel],
                   ["count", countLabel, String(totals.count)],
                 ] as const
               )
@@ -1329,27 +1371,32 @@ export default function ExplorerMap() {
               explain === "stat:cost" ||
               explain === "stat:count") && (
               <ExplainBox
-                explanation={explainStat(explain.slice(5) as StatKey, panelContext)}
+                explanation={explainStat(explain.slice(5) as StatKey, panelContext, copy)}
               />
             )}
 
-            {/* Inside a scan the stats above already are the detections, so no second line. */}
             {(level === 0 || (level === 1 && detectedHere)) && (
               <button
                 className={styles.detected}
                 aria-expanded={explain === "stat:detected"}
                 onClick={() => toggleExplain("stat:detected")}
               >
-                <strong>{level === 0 ? "Scanned so far" : "Found by scans"}</strong>
+                <strong>{level === 0 ? copy.t("map.scannedSoFar") : copy.t("map.foundByScans")}</strong>
                 {level === 0
                   ? scans.length
-                    ? `${scans.length} areas · ${formatPopulation(detectedVillages)} settlements`
-                    : "No scans yet"
-                  : `${formatPopulation(sum(collection, "estimated_population"))} people in ${totals.count} scan areas`}
+                    ? copy.t("map.scannedSummary", {
+                        count: scans.length,
+                        settlements: copy.people(detectedVillages),
+                      })
+                    : copy.t("map.noScans")
+                  : copy.t("map.peopleInScans", {
+                      count: totals.count,
+                      people: copy.people(sum(collection, "estimated_population")),
+                    })}
               </button>
             )}
             {explain === "stat:detected" && (
-              <ExplainBox explanation={explainStat("detected", panelContext)} />
+              <ExplainBox explanation={explainStat("detected", panelContext, copy)} />
             )}
 
             {showTourCost && extras?.tour && (
@@ -1361,17 +1408,21 @@ export default function ExplorerMap() {
                 <strong>
                   {extras.tour.summary.joined
                     ? extras.tour.summary.depotName
-                      ? `${extras.tour.summary.depotName}'s tour`
-                      : "Nearest clinic's tour"
-                    : "Team tour"}
+                      ? copy.t("map.tourNamed", { name: extras.tour.summary.depotName })
+                      : copy.t("map.tourNearest")
+                    : copy.t("map.tourTeam")}
                 </strong>
-                {formatCost(extras.tour.summary.costUsd)} travel for{" "}
-                {extras.tour.summary.stops} stops
-                {extras.tour.summary.joined && ` · ${extras.tour.summary.joined.scanCount} scan areas`}
+                {copy.t("map.tourTravel", {
+                  count: extras.tour.summary.stops,
+                  cost: copy.money(extras.tour.summary.costUsd),
+                  stops: extras.tour.summary.stops,
+                })}
+                {extras.tour.summary.joined &&
+                  ` · ${copy.t("map.joinedAreas", { count: extras.tour.summary.joined.scanCount })}`}
               </button>
             )}
             {explain === "stat:tour" && extras?.tour && (
-              <ExplainBox explanation={explainTour(extras.tour.summary)} />
+              <ExplainBox explanation={explainTour(extras.tour.summary, copy)} />
             )}
           </>
         )}
@@ -1385,55 +1436,55 @@ export default function ExplorerMap() {
             aria-expanded={legendOpen}
             onClick={() => setLegendOpen((o) => !o)}
           >
-            Map key
+            {copy.t("map.legend")}
           </button>
           {legendOpen && (
             <div className={styles.legend}>
               {level > 0 && (
                 <>
-                  <span>Cost</span>
+                  <span>{copy.t("map.cost")}</span>
                   <div className={styles.ramp} />
                   <div className={styles.rampLabels}>
-                    <span>Lower</span>
-                    <span>Higher</span>
+                    <span>{copy.t("map.lower")}</span>
+                    <span>{copy.t("map.higher")}</span>
                   </div>
                 </>
               )}
               <ul className={styles.key}>
                 <li>
-                  <i className={styles.keyDetected} /> Satellite scan
+                  <i className={styles.keyDetected} /> {copy.t("map.satelliteScan")}
                 </li>
                 <li>
-                  <i className={styles.keyModeled} /> Estimate only
+                  <i className={styles.keyModeled} /> {copy.t("map.estimateOnly")}
                 </li>
                 {((level === 0 && scans.length > 0) || (level === 1 && detectedHere)) && (
                   <>
                     <li>
-                      <i className={styles.keyScan} data-status="reached" /> Scan with clinic routes
+                      <i className={styles.keyScan} data-status="reached" /> {copy.t("map.scanWithRoutes")}
                     </li>
                     <li>
-                      <i className={styles.keyScan} data-status="noClinic" /> Settlements, no clinic nearby
+                      <i className={styles.keyScan} data-status="noClinic" /> {copy.t("map.scanNoClinic")}
                     </li>
                     <li>
-                      <i className={styles.keyScan} data-status="empty" /> No settlements found
+                      <i className={styles.keyScan} data-status="empty" /> {copy.t("map.scanEmpty")}
                     </li>
                   </>
                 )}
                 {showTour && (
                   <li>
-                    <i className={styles.keyTour} /> Team tour
+                    <i className={styles.keyTour} /> {copy.t("map.teamTour")}
                   </li>
                 )}
                 {!showTour && extras && extras.routes.features.length > 0 && (
                   <>
                     <li>
-                      <i className={styles.keyRoute} /> Road route from clinic
+                      <i className={styles.keyRoute} /> {copy.t("map.roadRoute")}
                     </li>
                     <li>
-                      <i className={styles.keyOffroad} /> Off-road stretch
+                      <i className={styles.keyOffroad} /> {copy.t("map.offroad")}
                     </li>
                     <li>
-                      <i className={styles.keyClinic} /> Clinic
+                      <i className={styles.keyClinic} /> {copy.t("map.clinic")}
                     </li>
                   </>
                 )}
@@ -1444,11 +1495,11 @@ export default function ExplorerMap() {
 
         <p className={styles.hint}>
           {loading
-            ? "Loading…"
+            ? copy.t("common.loading")
             : showingClinic
-              ? "Click a settlement or another clinic for details. Esc closes the clinic."
+              ? copy.t("map.escClinic")
               : hint}
-          {level > 0 && !loading && !showingClinic && <> Esc goes back.</>}
+          {level > 0 && !loading && !showingClinic && <>{copy.t("map.escBack")}</>}
         </p>
       </aside>
 
@@ -1471,7 +1522,7 @@ export default function ExplorerMap() {
               strokeLinecap="round"
             />
           </svg>
-          Help us scan the world&apos;s rural areas
+          {copy.t("map.helpScan")}
         </button>
       )}
 
@@ -1481,43 +1532,45 @@ export default function ExplorerMap() {
             {scan.status === "seeking" ? (
               <span>
                 {scan.countryName
-                  ? `Opening an unscanned area in ${scan.countryName}…`
-                  : "Finding an unscanned area…"}
+                  ? copy.t("map.openingNamed", { place: scan.countryName })
+                  : copy.t("map.opening")}
               </span>
             ) : scan.status === "running" ? (
               <span>
-                Scanning… {Math.round((now - scan.startedAt) / 1000)}s
+                {copy.t("map.scanning", { seconds: Math.round((now - scan.startedAt) / 1000) })}
               </span>
             ) : scan.status === "done" ? (
               <>
                 <span>
-                  Found {scan.scan.villages} settlements in{" "}
-                  {scan.scan.countryName}.
+                  {copy.t("map.foundSettlements", {
+                    count: scan.scan.villages,
+                    place: scan.scan.countryName,
+                  })}
                 </span>
                 <button onClick={() => openScan(scan.scan)}>
-                  View results
+                  {copy.t("map.viewResults")}
                 </button>
               </>
             ) : scan.status === "error" ? (
               <>
-                <span>{scan.message}</span>
+                <span>{scanErrorText(scan.message, copy.t)}</span>
                 <button onClick={() => setScan({ status: "idle" })}>
-                  Dismiss
+                  {copy.t("map.dismiss")}
                 </button>
               </>
             ) : (
               <button
                 onClick={scanView}
                 disabled={!canScan}
-                title={canScan ? undefined : `${viewTiles} tiles in view`}
+                title={canScan ? undefined : copy.t("map.tilesInView", { count: viewTiles ?? 0 })}
               >
-                {canScan ? "Scan this view" : "Zoom in to scan"}
+                {canScan ? copy.t("map.scanView") : copy.t("map.zoomToScan")}
               </button>
             )}
           </div>
         )}
 
-        <div className={styles.themeToggle} aria-label="Map theme selector">
+        <div className={styles.themeToggle} aria-label={copy.t("map.theme")}>
           <div className={styles.themeButtons}>
             <button
               type="button"
@@ -1526,7 +1579,7 @@ export default function ExplorerMap() {
               data-active={mapTheme === "dark" || undefined}
               onClick={() => setMapTheme("dark")}
             >
-              Dark
+              {copy.t("map.dark")}
             </button>
             <button
               type="button"
@@ -1535,7 +1588,7 @@ export default function ExplorerMap() {
               data-active={mapTheme === "light" || undefined}
               onClick={() => setMapTheme("light")}
             >
-              Light
+              {copy.t("map.light")}
             </button>
           </div>
         </div>
@@ -1550,22 +1603,22 @@ export default function ExplorerMap() {
         >
           {hover.kind === "clinic" ? (
             <>
-              <span className={styles.badge}>Clinic</span>
-              <strong>{hover.name}</strong>
+              <span className={styles.badge}>{copy.t("map.clinic")}</span>
+              <strong>{copy.place(hover.name)}</strong>
             </>
           ) : (
             <>
               <SourceBadge props={hover.props} />
-              <strong>{hover.props.name}</strong>
+              <strong>{copy.place(hover.props.name, hover.props.id, hover.props.level)}</strong>
               <dl>
                 <div>
-                  <dt>Population</dt>
-                  <dd>{formatPopulation(hover.props.estimated_population)}</dd>
+                  <dt>{copy.t("map.population")}</dt>
+                  <dd>{copy.people(hover.props.estimated_population)}</dd>
                 </div>
-                {formatHoverCost(hover.props) !== null && (
+                {formatHoverCost(hover.props, copy) !== null && (
                   <div>
-                    <dt>Cost</dt>
-                    <dd>{formatHoverCost(hover.props)}</dd>
+                    <dt>{copy.t("map.cost")}</dt>
+                    <dd>{formatHoverCost(hover.props, copy)}</dd>
                   </div>
                 )}
               </dl>
@@ -1581,33 +1634,33 @@ export default function ExplorerMap() {
 }
 
 function SourceBadge({ props }: { props: AreaProperties }) {
+  const { copy } = useMapMoney();
   const detected = props.data_source === "detected";
   return (
     <span className={styles.badge} data-detected={detected || undefined}>
-      {detected ? "Detected" : "Modeled estimate"}
+      {detected ? copy.t("map.detected") : copy.t("map.modeled")}
     </span>
   );
 }
 
-/** Certainty, reach and clinic for a detected village, read-only (tooltip). */
 function VillageSummary({ props }: { props: AreaProperties }) {
+  const { copy } = useMapMoney();
   return (
     <dl className={styles.details}>
       <div>
-        <dt>Confidence</dt>
-        <dd>{confidenceLevel(props)}</dd>
+        <dt>{copy.t("map.confidence")}</dt>
+        <dd>{confidenceLevel(props, copy)}</dd>
       </div>
       {props.reach_label && (
         <div>
-          <dt>Access</dt>
-          <dd>{accessLabel(props)}</dd>
+          <dt>{copy.t("map.access")}</dt>
+          <dd>{accessLabel(props, copy)}</dd>
         </div>
       )}
     </dl>
   );
 }
 
-/** A clicked clinic, at the top of the panel: the one tour it runs through every scan it serves. */
 function ClinicCard({
   card,
   open,
@@ -1617,36 +1670,38 @@ function ClinicCard({
   open: string | null;
   onToggle: (key: string) => void;
 }) {
-  const t = card.tour;
+  const { copy } = useMapMoney();
+  const tour = card.tour;
+  const rows = tour
+    ? [
+        [copy.t("map.scanAreas"), String(tour.scanCount)],
+        [copy.t("map.stops"), String(tour.stops)],
+        [copy.t("map.cost"), copy.exact(tour.costUsd + tour.vaccinationUsd)],
+        [copy.t("map.distance"), copy.km(tour.roadMeters + tour.offroadMeters)],
+      ]
+    : [];
   return (
     <div className={styles.card}>
       <div>
-        <p className="eyebrow">Clinic</p>
-        <h3 className={styles.title}>{card.name}</h3>
+        <p className="eyebrow">{copy.t("map.clinic")}</p>
+        <h3 className={styles.title}>{copy.place(card.name)}</h3>
         <button
           className={styles.coords}
           aria-expanded={open === "clinic:location"}
           onClick={() => onToggle("clinic:location")}
         >
-          {formatLatLon(card.lat, card.lon)}
+          {formatLatLon(card.lat, card.lon, copy)}
         </button>
       </div>
-      {open === "clinic:location" && <ExplainBox explanation={explainClinicLocation(card.lat, card.lon)} />}
-      {t === undefined ? (
-        <p className={styles.hint}>Loading its tour…</p>
-      ) : t === null ? (
-        <p className={styles.hint}>No tour starts here yet. It gets one when a scan nearby is saved.</p>
+      {open === "clinic:location" && <ExplainBox explanation={explainClinicLocation(card.lat, card.lon, copy)} />}
+      {tour === undefined ? (
+        <p className={styles.hint}>{copy.t("map.loadingTour")}</p>
+      ) : tour === null ? (
+        <p className={styles.hint}>{copy.t("map.noTourYet")}</p>
       ) : (
         <>
           <div className={styles.details}>
-            {(
-              [
-                ["Scan areas", String(t.scanCount)],
-                ["Stops", String(t.stops)],
-                ["Cost", formatCost(t.costUsd + t.vaccinationUsd)],
-                ["Distance", `${((t.roadMeters + t.offroadMeters) / 1000).toFixed(1)} km`],
-              ] as const
-            ).map(([label, value]) => (
+            {rows.map(([label, value]) => (
               <button
                 key={label}
                 className={styles.detailRow}
@@ -1658,14 +1713,13 @@ function ClinicCard({
               </button>
             ))}
           </div>
-          {open === "clinic:tour" && <ExplainBox explanation={explainClinicTour(t)} />}
+          {open === "clinic:tour" && <ExplainBox explanation={explainClinicTour(tour, copy)} />}
         </>
       )}
     </div>
   );
 }
 
-/** The selected settlement, at the top of the panel. Every row explains itself when clicked. */
 function SettlementCard({
   props,
   tour,
@@ -1681,40 +1735,43 @@ function SettlementCard({
   onToggle: (key: string) => void;
   onClose: () => void;
 }) {
+  const { copy } = useMapMoney();
   const rows: [VillageKey, string, ReactNode][] = [
-    ["population", "People", formatPopulation(props.estimated_population)],
-    ["cost", "Cost", formatCost(props.estimated_cost)],
+    ["population", copy.t("map.people"), copy.people(props.estimated_population)],
+    ["cost", copy.t("map.cost"), copy.money(props.estimated_cost)],
   ];
   if (props.certainty !== undefined) {
     rows.push(
-      ["certainty", "Confidence", confidenceLabel(props)],
-      ["reach", "Access", accessLabel(props)],
+      ["certainty", copy.t("map.confidence"), confidenceLabel(props, copy)],
+      ["reach", copy.t("map.access"), accessLabel(props, copy)],
     );
     if (tour) {
       rows.push([
         "tour",
-        "Tour stop",
-        props.tour_stop !== undefined ? `${props.tour_stop} of ${tour.stops}` : "Not on tour",
+        copy.t("map.tourStop"),
+        props.tour_stop !== undefined
+          ? copy.t("map.tourStopOf", { stop: props.tour_stop, stops: tour.stops })
+          : copy.t("map.notOnTour"),
       ]);
     }
   }
   const explainRow = (key: VillageKey) =>
-    open === `village:${key}` && <ExplainBox explanation={explainVillage(key, props, tour)} />;
+    open === `village:${key}` && <ExplainBox explanation={explainVillage(key, props, tour, copy)} />;
   return (
     <div className={styles.card}>
       <button className={styles.back} onClick={onClose}>
-        ← {backLabel}
+        {copy.t("map.backTo", { name: backLabel })}
       </button>
       <div>
-        <p className="eyebrow">Settlement</p>
-        <h3 className={styles.title}>{props.name}</h3>
+        <p className="eyebrow">{copy.t("map.settlement")}</p>
+        <h3 className={styles.title}>{copy.place(props.name, props.id, props.level)}</h3>
         {props.lat !== undefined && props.lon !== undefined && (
           <button
             className={styles.coords}
             aria-expanded={open === "village:location"}
             onClick={() => onToggle("village:location")}
           >
-            {formatLatLon(props.lat, props.lon)}
+            {formatLatLon(props.lat, props.lon, copy)}
           </button>
         )}
       </div>
@@ -1738,13 +1795,8 @@ function SettlementCard({
   );
 }
 
-const DOWNLOAD_FORMATS: { format: ExportFormat; label: string; detail: string }[] = [
-  { format: "geojson", label: "GeoJSON", detail: "Shapes & routes" },
-  { format: "csv", label: "CSV", detail: "Table of costs" },
-];
-
-/** Downloads whatever the panel shows: countries, scans, settlements, or one settlement. */
 function DownloadBox({ view }: { view: ExportView | null }) {
+  const { copy } = useMapMoney();
   const [saved, setSaved] = useState<ExportFormat | null>(null);
   useEffect(() => {
     if (!saved) return;
@@ -1757,6 +1809,11 @@ function DownloadBox({ view }: { view: ExportView | null }) {
     downloadView(view, format);
     setSaved(format);
   };
+
+  const formats: { format: ExportFormat; label: string; detail: string }[] = [
+    { format: "geojson", label: copy.t("map.geojson"), detail: copy.t("map.geojsonDetail") },
+    { format: "csv", label: copy.t("map.csv"), detail: copy.t("map.csvDetail") },
+  ];
 
   return (
     <div className={styles.download}>
@@ -1774,12 +1831,12 @@ function DownloadBox({ view }: { view: ExportView | null }) {
           </svg>
         </span>
         <div>
-          <strong>{view?.selected ? "Download settlement" : "Download data"}</strong>
-          <span>{view ? describeExport(view) : "Loading…"}</span>
+          <strong>{view?.selected ? copy.t("map.downloadSettlement") : copy.t("map.downloadData")}</strong>
+          <span>{view ? describeExport(view, copy.t) : copy.t("common.loading")}</span>
         </div>
       </div>
       <div className={styles.downloadButtons}>
-        {DOWNLOAD_FORMATS.map(({ format, label, detail }) => (
+        {formats.map(({ format, label, detail }) => (
           <button
             key={format}
             type="button"
@@ -1789,7 +1846,7 @@ function DownloadBox({ view }: { view: ExportView | null }) {
             disabled={!view}
             onClick={() => download(format)}
           >
-            <span>{saved === format ? "Saved ✓" : label}</span>
+            <span>{saved === format ? copy.t("map.saved") : label}</span>
             <small>{detail}</small>
           </button>
         ))}
@@ -1797,6 +1854,7 @@ function DownloadBox({ view }: { view: ExportView | null }) {
     </div>
   );
 }
+
 
 function ExplainBox({ explanation }: { explanation: Explanation }) {
   const ref = useRef<HTMLDivElement>(null);

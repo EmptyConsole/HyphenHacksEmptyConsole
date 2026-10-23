@@ -1,3 +1,6 @@
+"use client";
+
+import { useLocale } from "@/i18n/LocaleProvider";
 import styles from "./SolutionPage.module.css";
 
 /** Illustrative layout, not a real scan: three clinics, one settlement, the cheapest trip highlighted. */
@@ -30,12 +33,13 @@ function Clinic({ x, y, label, chosen }: Pt & { label: string; chosen?: boolean 
 }
 
 export default function RouteDiagram() {
+  const { t } = useLocale();
   return (
     <svg
       className={styles.route}
       viewBox="0 0 560 320"
       role="img"
-      aria-label="Three clinics could reach the settlement. The cheapest trip follows a paved road, then a dirt track, then a short stretch with no road."
+      aria-label={t("diagrams.routeDiagramLabel")}
     >
       {OTHERS.map((c) => (
         <path key={c.x} className={styles.ghost} d={d([c, ...c.path])} />
@@ -49,9 +53,9 @@ export default function RouteDiagram() {
       ))}
 
       <g className={styles.legLabel}>
-        <text x={150} y={170} textAnchor="middle">Paved road · $1.40/km</text>
-        <text x={330} y={150} textAnchor="middle">Track · $4.50/km</text>
-        <text x={420} y={208} textAnchor="middle">No road · $8/km</text>
+        <text x={150} y={170} textAnchor="middle">{t("diagrams.pavedRate")}</text>
+        <text x={330} y={150} textAnchor="middle">{t("diagrams.trackRate")}</text>
+        <text x={420} y={208} textAnchor="middle">{t("diagrams.noRoadRate")}</text>
       </g>
 
       <g className={styles.houses}>
@@ -60,13 +64,13 @@ export default function RouteDiagram() {
         ))}
       </g>
       <text className={styles.villageLabel} x={VILLAGE.x + 4} y={VILLAGE.y - 30} textAnchor="middle">
-        Settlement
+        {t("diagrams.settlement")}
       </text>
 
       {OTHERS.map((c, i) => (
-        <Clinic key={c.x} x={c.x} y={c.y} label={`Clinic ${i ? "C" : "B"}`} />
+        <Clinic key={c.x} x={c.x} y={c.y} label={t(i ? "diagrams.clinicC" : "diagrams.clinicB")} />
       ))}
-      <Clinic {...CHOSEN} label="Clinic A · cheapest" chosen />
+      <Clinic {...CHOSEN} label={t("diagrams.clinicACheapest")} chosen />
     </svg>
   );
 }

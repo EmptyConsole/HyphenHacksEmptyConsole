@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocale } from "@/i18n/LocaleProvider";
+import { formatCount } from "@/lib/format";
 import { highlightLines, lineCount, type TokenKind } from "./highlight";
 import styles from "./AlgorithmView.module.css";
 
@@ -33,6 +35,7 @@ function downloadSource(source: string) {
 }
 
 export default function CodePanel({ source, error, range, label, jump }: CodePanelProps) {
+  const { t, locale } = useLocale();
   const scroller = useRef<HTMLDivElement>(null);
   const [saved, setSaved] = useState(false);
   const lines = useMemo(() => (source ? highlightLines(source) : []), [source]);
@@ -59,10 +62,14 @@ export default function CodePanel({ source, error, range, label, jump }: CodePan
       <div className={styles.codeBar}>
         <div className={styles.codeMeta}>
           <span className={styles.fileName}>detectVillages.mjs</span>
-          <span>{source ? `${count.toLocaleString("en-US")} lines · comments included` : "Source"}</span>
+          <span>{source ? t("algorithm.linesIncluded", { count: formatCount(count, locale) }) : t("algorithm.source")}</span>
           {range && label && (
             <span className={styles.jumpLabel}>
-              Lines {range[0].toLocaleString("en-US")}–{range[1].toLocaleString("en-US")} · {label}
+              {t("algorithm.lineRange", {
+                start: formatCount(range[0], locale),
+                end: formatCount(range[1], locale),
+                label,
+              })}
             </span>
           )}
         </div>
@@ -76,7 +83,7 @@ export default function CodePanel({ source, error, range, label, jump }: CodePan
             setSaved(true);
           }}
         >
-          {saved ? "Downloaded" : "Download"}
+          {saved ? t("algorithm.downloaded") : t("algorithm.download")}
         </button>
       </div>
       <div
@@ -84,10 +91,10 @@ export default function CodePanel({ source, error, range, label, jump }: CodePan
         className={styles.scroller}
         tabIndex={0}
         role="region"
-        aria-label="detectVillages.mjs, scroll to read"
+        aria-label={t("algorithm.codeLabel")}
       >
         {error && <p className={styles.codeStatus}>{error}</p>}
-        {!error && !source && <p className={styles.codeStatus}>Reading the source…</p>}
+        {!error && !source && <p className={styles.codeStatus}>{t("algorithm.reading")}</p>}
         {lines.map((tokens, index) => {
           const number = index + 1;
           const active = range ? number >= range[0] && number <= range[1] : false;

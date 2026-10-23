@@ -2,11 +2,12 @@
 
 import { useId, useState, type CSSProperties, type ReactElement } from "react";
 import type { StepId } from "@/content/algorithm";
+import { useLocale } from "@/i18n/LocaleProvider";
+import { formatUsd } from "@/lib/format";
 import styles from "./AlgorithmView.module.css";
 
-const usd = (value: number) => `$${value.toLocaleString("en-US")}`;
-
 function PictureScene() {
+  const { t } = useLocale();
   const [run, setRun] = useState(0);
   const tiles = [
     { roofs: [[18, 22, 16, 10], [42, 40, 14, 9]] },
@@ -26,9 +27,9 @@ function PictureScene() {
           </div>
         ))}
       </div>
-      <p className={styles.sceneNote}>Building outlines load one square at a time and get cut to fit the box.</p>
+      <p className={styles.sceneNote}>{t("scenes.pictureNote")}</p>
       <button type="button" className={styles.textButton} onClick={() => setRun((value) => value + 1)}>
-        Load again
+        {t("scenes.loadAgain")}
       </button>
     </div>
   );
@@ -40,19 +41,19 @@ const CELLS = [
   "dark", "metal", "tree", "tile", "road", "pale", "water", "tree",
 ] as const;
 
-const CELL_LABEL: Record<(typeof CELLS)[number], string> = {
-  tree: "Trees",
-  water: "Water",
-  dark: "Shadow",
-  road: "Road",
-  tile: "Red tile",
-  pale: "Concrete",
-  metal: "Metal roof",
-};
-
 function RoofsScene() {
+  const { t } = useLocale();
   const [mode, setMode] = useState<"play" | "all" | "roofs">("play");
   const kept = mode !== "all";
+  const cellLabel: Record<(typeof CELLS)[number], string> = {
+    tree: t("scenes.trees"),
+    water: t("scenes.water"),
+    dark: t("scenes.shadow"),
+    road: t("scenes.road"),
+    tile: t("scenes.redTile"),
+    pale: t("scenes.concrete"),
+    metal: t("scenes.metalRoof"),
+  };
 
   return (
     <div className={styles.scene}>
@@ -63,33 +64,32 @@ function RoofsScene() {
             className={styles.pixel}
             data-kind={kind}
             data-keep={kind === "tile" || kind === "pale" || kind === "metal" || undefined}
-            title={CELL_LABEL[kind]}
+            title={cellLabel[kind]}
           />
         ))}
       </div>
-      <div className={styles.choiceRow} role="group" aria-label="What to keep from the picture">
+      <div className={styles.choiceRow} role="group" aria-label={t("scenes.keepLabel")}>
         <button type="button" className={styles.choice} data-on={mode === "all" || undefined} aria-pressed={mode === "all"} onClick={() => setMode("all")}>
-          Whole picture
+          {t("scenes.wholePicture")}
         </button>
         <button type="button" className={styles.choice} data-on={kept || undefined} aria-pressed={kept} onClick={() => setMode("roofs")}>
-          Roofs only
+          {t("scenes.roofsOnly")}
         </button>
       </div>
       <p className={styles.sceneNote}>
-        {kept
-          ? "Trees, water, shadow and the road go away. Red tile, concrete and metal roofs stay."
-          : "This is the satellite picture before anything is removed."}
+        {kept ? t("scenes.roofsKept") : t("scenes.roofsAll")}
       </p>
     </div>
   );
 }
 
 function JoinScene() {
+  const { t } = useLocale();
   const [run, setRun] = useState(0);
 
   return (
     <div className={styles.scene}>
-      <svg key={run} className={styles.joinArt} viewBox="0 0 240 140" role="img" aria-label="Nearby roofs join into one outline. A lone shed is dropped.">
+      <svg key={run} className={styles.joinArt} viewBox="0 0 240 140" role="img" aria-label={t("scenes.joinLabel")}>
         <rect className={styles.ground} width="240" height="140" rx="10" />
         <path
           className={styles.trace}
@@ -109,9 +109,9 @@ function JoinScene() {
           <path className={styles.shedMark} pathLength={1} d="M170 90 L196 112" />
         </g>
       </svg>
-      <p className={styles.sceneNote}>Buildings within about 50 m of each other become one settlement. The shed by itself gets removed.</p>
+      <p className={styles.sceneNote}>{t("scenes.joinNote")}</p>
       <button type="button" className={styles.textButton} onClick={() => setRun((value) => value + 1)}>
-        Join again
+        {t("scenes.joinAgain")}
       </button>
     </div>
   );
@@ -136,32 +136,38 @@ function satelliteScore(buildings: number, compactness: number, roofShare: numbe
 }
 
 function CheckScene() {
+  const { t } = useLocale();
   const [mapped, setMapped] = useState(true);
   const score = satelliteScore(SAMPLE.buildings, SAMPLE.compactness, SAMPLE.roofShare);
+  const parts = [
+    { label: t("scenes.scoreBuildings"), hint: t("scenes.scoreBuildingsHint"), fill: score.parts[0].fill },
+    { label: t("scenes.scoreShape"), hint: t("scenes.scoreShapeHint"), fill: score.parts[1].fill },
+    { label: t("scenes.scoreCover"), hint: t("scenes.scoreCoverHint"), fill: score.parts[2].fill },
+  ];
 
   return (
     <div className={styles.scene}>
-      <div className={styles.choiceRow} role="group" aria-label="Whether OpenStreetMap already has this place">
+      <div className={styles.choiceRow} role="group" aria-label={t("scenes.mappedLabel")}>
         <button type="button" className={styles.choice} data-on={mapped || undefined} aria-pressed={mapped} onClick={() => setMapped(true)}>
-          On the map
+          {t("scenes.onTheMap")}
         </button>
         <button type="button" className={styles.choice} data-on={!mapped || undefined} aria-pressed={!mapped} onClick={() => setMapped(false)}>
-          Not on the map
+          {t("scenes.notOnTheMap")}
         </button>
       </div>
       {mapped ? (
         <p className={styles.score}>
           <span className={styles.scoreValue}>100</span>
-          <span>Certainty. A mapped place confirms the village.</span>
+          <span>{t("scenes.certaintyMapped")}</span>
         </p>
       ) : (
         <>
           <p className={styles.score}>
             <span className={styles.scoreValue}>{score.total}</span>
-            <span>Certainty from the buildings alone. It cannot reach 100.</span>
+            <span>{t("scenes.certaintyAlone")}</span>
           </p>
           <ul className={styles.meters}>
-            {score.parts.map((part) => (
+            {parts.map((part) => (
               <li key={part.label}>
                 <span className={styles.meterLabel}>
                   {part.label}
@@ -173,7 +179,7 @@ function CheckScene() {
               </li>
             ))}
           </ul>
-          <p className={styles.sceneNote}>This example has 6 buildings, a compactness of 0.36, and buildings covering 11% of the outline.</p>
+          <p className={styles.sceneNote}>{t("scenes.checkExample")}</p>
         </>
       )}
     </div>
@@ -181,6 +187,7 @@ function CheckScene() {
 }
 
 function CostScene() {
+  const { t, locale } = useLocale();
   const id = useId();
   const [homes, setHomes] = useState(8);
   // Mirrors PEOPLE_PER_HOME and the vaccination cost in detectVillages.mjs.
@@ -190,7 +197,7 @@ function CostScene() {
   return (
     <div className={styles.scene}>
       <label className={styles.sliderLabel} htmlFor={id}>
-        Homes
+        {t("scenes.homes")}
         <span>{homes}</span>
       </label>
       <input
@@ -204,15 +211,13 @@ function CostScene() {
       />
       <p className={styles.formula}>
         <span>
-          {homes} homes × 4.7 = <strong>{people} people</strong>
+          {t("scenes.homesFormula", { homes, people })}
         </span>
         <span>
-          {people} × $10 + $100 visit = <strong>{usd(cost)}</strong>
+          {t("scenes.costFormula", { people, cost: formatUsd(cost, locale, 0) })}
         </span>
       </p>
-      <p className={styles.sceneNote}>
-        Try moving the slider. The visit still costs $100 even if the settlement is tiny.
-      </p>
+      <p className={styles.sceneNote}>{t("scenes.costNote")}</p>
     </div>
   );
 }
@@ -248,15 +253,19 @@ const ROUTES = [
 ] as const;
 
 function TripScene() {
+  const { t, locale } = useLocale();
   const priced = ROUTES.map((route) => ({ ...route, cost: Math.round(route.km * route.rate) }));
   const lowest = Math.min(...priced.map((route) => route.cost));
   const [selected, setSelected] = useState(priced.find((route) => route.cost === lowest)?.id ?? priced[0].id);
   const current = priced.find((route) => route.id === selected) ?? priced[0];
+  const nameKey = { primary: "scenes.clinicA", track: "scenes.clinicB", none: "scenes.clinicC" } as const;
+  const roadKey = { primary: "scenes.primaryRoad", track: "scenes.dirtTrack", none: "scenes.noRoad" } as const;
+  const noteKey = { primary: "scenes.notePrimary", track: "scenes.noteTrack", none: "scenes.noteNone" } as const;
 
   return (
     <div className={styles.scene}>
       <div className={styles.diagram}>
-        <span>Clinics</span>
+        <span>{t("scenes.clinics")}</span>
         <svg viewBox="0 0 220 140" aria-hidden="true">
           {priced.map((route) => (
             <path
@@ -272,9 +281,9 @@ function TripScene() {
           <circle className={styles.clinicDot} cx="28" cy="112" r="5" />
           <circle className={styles.villageDot} cx="204" cy="70" r="6" />
         </svg>
-        <span>Village</span>
+        <span>{t("scenes.village")}</span>
       </div>
-      <div className={styles.choices} role="group" aria-label="Clinic trips">
+      <div className={styles.choices} role="group" aria-label={t("scenes.tripsLabel")}>
         {priced.map((route) => (
           <button
             key={route.id}
@@ -285,19 +294,19 @@ function TripScene() {
             onClick={() => setSelected(route.id)}
           >
             <span className={styles.choiceName}>
-              {route.name}
-              {route.cost === lowest && <span className={styles.badge}>Lowest</span>}
+              {t(nameKey[route.id])}
+              {route.cost === lowest && <span className={styles.badge}>{t("scenes.lowest")}</span>}
             </span>
             <span className={styles.choiceMeta}>
-              {route.km} km · {route.road}
+              {t("scenes.tripMeta", { km: route.km, road: t(roadKey[route.id]) })}
             </span>
             <span className={styles.choiceCost}>
-              {route.km} × ${route.rate.toFixed(2)} = {usd(route.cost)}
+              {t("scenes.tripCost", { km: route.km, rate: route.rate.toFixed(2), cost: formatUsd(route.cost, locale, 0) })}
             </span>
           </button>
         ))}
       </div>
-      <p className={styles.sceneNote}>{current.note}</p>
+      <p className={styles.sceneNote}>{t(noteKey[current.id])}</p>
     </div>
   );
 }
@@ -333,6 +342,7 @@ function tourKm(order: readonly number[]) {
 }
 
 function TourScene() {
+  const { t, locale } = useLocale();
   const tours = TOURS.map((tour) => {
     const km = tourKm(tour.order);
     return { ...tour, km, cost: km * TOUR_USD_PER_KM };
@@ -341,11 +351,13 @@ function TourScene() {
   const [selected, setSelected] = useState<string>(tours[0].id);
   const current = tours.find((tour) => tour.id === selected) ?? tours[0];
   const d = current.order.map((k, i) => `${i ? "L" : "M"} ${TOUR_POINTS[k][0]} ${TOUR_POINTS[k][1]}`).join(" ");
+  const nameKey = { greedy: "scenes.greedy", improved: "scenes.improved" } as const;
+  const noteKey = { greedy: "scenes.noteGreedy", improved: "scenes.noteImproved" } as const;
 
   return (
     <div className={styles.scene}>
       <div className={styles.diagram}>
-        <span>Clinic</span>
+        <span>{t("scenes.clinic")}</span>
         <svg viewBox="0 0 220 140" aria-hidden="true">
           <path key={current.id} className={styles.path} data-on d={d} pathLength={1} />
           <circle className={styles.clinicDot} cx={TOUR_POINTS[0][0]} cy={TOUR_POINTS[0][1]} r="5" />
@@ -353,9 +365,9 @@ function TourScene() {
             <circle key={`${x},${y}`} className={styles.villageDot} cx={x} cy={y} r="5" />
           ))}
         </svg>
-        <span>6 villages</span>
+        <span>{t("scenes.sixVillages")}</span>
       </div>
-      <div className={styles.choices} role="group" aria-label="Tour order">
+      <div className={styles.choices} role="group" aria-label={t("scenes.tourLabel")}>
         {tours.map((tour) => (
           <button
             key={tour.id}
@@ -366,17 +378,21 @@ function TourScene() {
             onClick={() => setSelected(tour.id)}
           >
             <span className={styles.choiceName}>
-              {tour.name}
-              {tour.cost === lowest && <span className={styles.badge}>Lowest</span>}
+              {t(nameKey[tour.id])}
+              {tour.cost === lowest && <span className={styles.badge}>{t("scenes.lowest")}</span>}
             </span>
-            <span className={styles.choiceMeta}>{tour.km} km round trip</span>
+            <span className={styles.choiceMeta}>{t("scenes.roundTrip", { km: tour.km })}</span>
             <span className={styles.choiceCost}>
-              {tour.km} × ${TOUR_USD_PER_KM.toFixed(2)} = {usd(tour.cost)}
+              {t("scenes.tripCost", {
+                km: tour.km,
+                rate: TOUR_USD_PER_KM.toFixed(2),
+                cost: formatUsd(tour.cost, locale, 0),
+              })}
             </span>
           </button>
         ))}
       </div>
-      <p className={styles.sceneNote}>{current.note}</p>
+      <p className={styles.sceneNote}>{t(noteKey[current.id])}</p>
     </div>
   );
 }

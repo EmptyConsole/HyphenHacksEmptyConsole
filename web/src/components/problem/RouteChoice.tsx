@@ -1,3 +1,7 @@
+"use client";
+
+import { useLocale } from "@/i18n/LocaleProvider";
+import { formatUsd } from "@/lib/format";
 import styles from "./ProblemDiagrams.module.css";
 
 type Leg = { label: string; road: string; km: number; rate: number };
@@ -10,16 +14,24 @@ const HOUSES = [
   [494, 160], [508, 156], [520, 164], [498, 176], [514, 178],
 ];
 
-const cost = (leg: Leg) => `$${Math.round(leg.km * leg.rate)}`;
-
-/** Illustrative layout: two ways from one clinic to one village, priced per km. */
 export default function RouteChoice({ shortest, cheapest }: { shortest: Leg; cheapest: Leg }) {
+  const { t, locale } = useLocale();
+  const cost = (leg: Leg) => formatUsd(Math.round(leg.km * leg.rate), locale, 0);
   return (
     <svg
       className={styles.diagram}
       viewBox="0 0 560 240"
       role="img"
-      aria-label={`${shortest.label}: ${shortest.km} km of ${shortest.road}, ${cost(shortest)}. ${cheapest.label}: ${cheapest.km} km of ${cheapest.road}, ${cost(cheapest)}.`}
+      aria-label={t("diagrams.routeChoiceLabel", {
+        shortest: shortest.label,
+        shortestKm: shortest.km,
+        shortestRoad: shortest.road,
+        shortestCost: cost(shortest),
+        cheapest: cheapest.label,
+        cheapestKm: cheapest.km,
+        cheapestRoad: cheapest.road,
+        cheapestCost: cost(cheapest),
+      })}
     >
       <path className={styles.shortRoute} d={SHORT} />
       <path className={styles.cheapRoute} d={LONG} />
@@ -40,7 +52,7 @@ export default function RouteChoice({ shortest, cheapest }: { shortest: Leg; che
         <path d={`M${CLINIC.x - 6} ${CLINIC.y}h12M${CLINIC.x} ${CLINIC.y - 6}v12`} />
       </g>
       <text className={styles.mapLabel} x={CLINIC.x} y={CLINIC.y + 34} textAnchor="middle">
-        Clinic
+        {t("diagrams.clinic")}
       </text>
 
       <g className={styles.satRoofs}>
@@ -49,7 +61,7 @@ export default function RouteChoice({ shortest, cheapest }: { shortest: Leg; che
         ))}
       </g>
       <text className={styles.mapLabel} x={VILLAGE.x + 6} y={VILLAGE.y + 34} textAnchor="middle">
-        Village
+        {t("diagrams.village")}
       </text>
     </svg>
   );

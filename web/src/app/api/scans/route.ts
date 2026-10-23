@@ -17,14 +17,16 @@ export const maxDuration = 300;
 // One live scan at a time: each run downloads hundreds of tiles and queries Overpass.
 let running = false;
 
-/** Plain-language reason for a failed scan, instead of the raw error. */
-function scanError(message: string) {
+/** A stable code the map translates. `error` stays for logs and older clients. */
+function scanFailure(message: string) {
   if (/Overpass/i.test(message)) {
-    return "OpenStreetMap's server (Overpass) is busy right now. Try again in a minute.";
+    return { code: "overpass", error: "OpenStreetMap's server (Overpass) is busy right now. Try again in a minute." };
   }
-  if (/tile|JPEG|arcgisonline/i.test(message)) return "Satellite images couldn't be downloaded. Try again.";
-  if (/took too long/.test(message)) return "The scan took too long. Try a smaller area.";
-  return `Scan failed: ${message}`;
+  if (/tile|JPEG|arcgisonline/i.test(message)) {
+    return { code: "tiles", error: "Satellite images couldn't be downloaded. Try again." };
+  }
+  if (/took too long/.test(message)) return { code: "timeout", error: "The scan took too long. Try a smaller area." };
+  return { code: "failed", error: `Scan failed: ${message}` };
 }
 
 /** Runs the detector on the posted box. Takes from ~10 s to a few minutes. */
@@ -33,21 +35,21 @@ export async function POST(request: Request) {
   const { south, west, north, east, countryId, countryName } = body ?? {};
   const numbers = [south, west, north, east];
   if (!numbers.every((n) => typeof n === "number" && Number.isFinite(n))) {
-    return Response.json({ error: "south, west, north and east must be numbers" }, { status: 400 });
+    return Response.json({ code: "badNumbers", error: "south, west, north and east must be numbers" }, { status: 400 });
   }
   if (typeof countryId !== "string" || !/^\d+$/.test(countryId) || typeof countryName !== "string") {
-    return Response.json({ error: "countryId and countryName are required" }, { status: 400 });
+    return Response.json({ code: "missingCountry", error: "countryId and countryName are required" }, { status: 400 });
   }
   const box = { south: south!, west: west!, north: north!, east: east! };
   if (!(box.south < box.north && box.west < box.east) || box.south <= -85 || box.north >= 85) {
-    return Response.json({ error: "invalid bounding box" }, { status: 400 });
+    return Response.json({ code: "invalidBox", error: "invalid bounding box" }, { status: 400 });
   }
   const tiles = tileCount(box.south, box.west, box.north, box.east);
   if (tiles > baselineConfig.maxScanTiles) {
-    return Response.json({ error: `area covers ${tiles} tiles; zoom in further` }, { status: 400 });
+    return Response.json({ code: "tooManyTiles", error: `area covers ${tiles} tiles; zoom in further` }, { status: 400 });
   }
   if (running) {
-    return Response.json({ error: "another scan is already running" }, { status: 409 });
+    return Response.json({ code: "busy", error: "another scan is already running" }, { status: 409 });
   }
 
   running = true;
@@ -56,7 +58,7 @@ export async function POST(request: Request) {
     return Response.json({ scan });
   } catch (error) {
     console.error("scan failed:", error);
-    return Response.json({ error: scanError((error as Error).message) }, { status: 502 });
+    return Response.json(scanFailure((error as Error).message), { status: 502 });
   } finally {
     running = false;
   }

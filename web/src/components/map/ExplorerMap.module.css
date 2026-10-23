@@ -55,7 +55,7 @@
   position: absolute;
   z-index: calc(var(--z-map-overlay) + 1);
   top: var(--space-4);
-  left: calc(300px + var(--space-8));
+  inset-inline-start: calc(300px + var(--space-8));
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -71,7 +71,7 @@
   font-size: var(--text-small);
   font-weight: var(--weight-medium);
   line-height: 1.25;
-  text-align: left;
+  text-align: start;
   transition:
     border-color var(--duration-fast) var(--ease-out),
     background-color var(--duration-fast) var(--ease-out);
@@ -95,7 +95,7 @@
 .rightControls {
   position: absolute;
   /* Clear MapLibre's compact attribution ("i") control in the bottom-right. */
-  right: var(--space-4);
+  inset-inline-end: var(--space-4);
   bottom: calc(var(--space-4) + 2.75rem);
   z-index: calc(var(--z-map-overlay) + 1);
   display: flex;
@@ -147,7 +147,7 @@
   position: absolute;
   z-index: var(--z-map-overlay);
   top: var(--space-4);
-  left: var(--space-4);
+  inset-inline-start: var(--space-4);
   width: 300px;
   display: flex;
   flex-direction: column;
@@ -162,6 +162,25 @@
   max-height: calc(100% - 2 * var(--space-4));
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.currency {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+}
+
+.currency select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--tint-2);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-small);
 }
 
 .crumbs {
@@ -226,7 +245,7 @@
   margin: calc(-1 * var(--space-2));
   padding: var(--space-2);
   border-radius: var(--radius-md);
-  text-align: left;
+  text-align: start;
   transition: background-color var(--duration-fast) var(--ease-out);
 }
 
@@ -333,7 +352,7 @@
 
 .back {
   align-self: flex-start;
-  margin-left: calc(-1 * var(--space-2));
+  margin-inline-start: calc(-1 * var(--space-2));
   padding: 2px var(--space-2);
   border-radius: var(--radius-pill);
   font-size: var(--text-micro);
@@ -434,7 +453,7 @@
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border-strong);
   background: var(--tint-2);
-  text-align: left;
+  text-align: start;
   transition:
     background-color var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out),
@@ -632,7 +651,7 @@
   margin: calc(-1 * var(--space-2));
   padding: var(--space-2);
   border-radius: var(--radius-md);
-  text-align: left;
+  text-align: start;
   font-size: var(--text-small);
   font-family: var(--font-mono);
   color: var(--color-text-secondary);
@@ -674,7 +693,7 @@ dl.details > div {
   margin: 0 calc(-1 * var(--space-2));
   padding: 2px var(--space-2);
   border-radius: var(--radius-sm);
-  text-align: left;
+  text-align: start;
 }
 
 .detailRow span:first-child {
@@ -685,7 +704,7 @@ dl.details > div {
 
 .detailRow span:last-child {
   font-family: var(--font-mono);
-  text-align: right;
+  text-align: end;
   color: var(--color-text);
 }
 
@@ -695,7 +714,7 @@ dl.details > div {
 
 .details dd {
   font-family: var(--font-mono);
-  text-align: right;
+  text-align: end;
   color: var(--color-text);
 }
 

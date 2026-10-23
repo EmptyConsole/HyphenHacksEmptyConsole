@@ -1,3 +1,6 @@
+"use client";
+
+import { useLocale } from "@/i18n/LocaleProvider";
 import styles from "./ProblemDiagrams.module.css";
 
 /** Illustrative layout, not a real scan: one area drawn as an official map and as a satellite photo. */
@@ -32,29 +35,30 @@ function Clinic({ x, y }: { x: number; y: number }) {
 }
 
 export default function MapGap() {
+  const { t } = useLocale();
   const right = PANEL.w + PANEL.gap;
   return (
     <svg
       className={styles.diagram}
       viewBox={`0 0 ${right + PANEL.w} ${PANEL.top + PANEL.h}`}
       role="img"
-      aria-label="On the official map the area shows one road and one town with a clinic. The satellite view of the same area shows four more villages that the map leaves out."
+      aria-label={t("diagrams.mapGapLabel")}
     >
       <text className={styles.panelTitle} x={0} y={16}>
-        Official map
+        {t("diagrams.officialMap")}
       </text>
       <g transform={`translate(0,${PANEL.top})`}>
         <rect className={styles.mapBg} width={PANEL.w} height={PANEL.h} rx={10} />
         <path className={styles.mapRoad} d={ROAD} />
         <circle className={styles.mapTown} cx={TOWN.x} cy={TOWN.y} r={18} />
         <text className={styles.mapLabel} x={TOWN.x} y={TOWN.y + 34} textAnchor="middle">
-          Town
+          {t("diagrams.town")}
         </text>
         <Clinic x={TOWN.x} y={TOWN.y} />
       </g>
 
       <text className={styles.panelTitle} x={right} y={16}>
-        Satellite <tspan className={styles.foundLabel}>· {VILLAGES.length} villages the map left out</tspan>
+        {t("diagrams.satellite")} <tspan className={styles.foundLabel}>{t("diagrams.villagesLeftOut", { count: VILLAGES.length })}</tspan>
       </text>
       <g transform={`translate(${right},${PANEL.top})`}>
         <rect className={styles.satBg} width={PANEL.w} height={PANEL.h} rx={10} />

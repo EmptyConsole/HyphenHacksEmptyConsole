@@ -132,7 +132,7 @@
   column-gap: var(--space-4);
   row-gap: var(--space-2);
   width: 100%;
-  text-align: left;
+  text-align: start;
   align-items: center;
 }
 
@@ -195,7 +195,7 @@ button.codeLink {
   min-height: 44px;
   padding-block: 0.65rem;
   line-height: 1.25;
-  text-align: left;
+  text-align: start;
 }
 
 /* ---------- Scenes ---------- */
@@ -360,7 +360,7 @@ button.codeLink {
   gap: var(--space-1);
   width: 100%;
   padding: var(--space-3);
-  text-align: left;
+  text-align: start;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -720,6 +720,7 @@ button.codeLink {
 
 .scroller {
   position: relative;
+  direction: ltr;
   max-height: min(32rem, 70vh);
   overflow: auto;
   background: #070a12;

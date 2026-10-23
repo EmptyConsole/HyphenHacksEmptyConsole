@@ -1,12 +1,15 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { Metadata } from "next";
 import AlgorithmView from "@/components/algorithm/AlgorithmView";
+import { pageMetadata } from "@/i18n/pageMetadata";
 
-export const metadata: Metadata = {
-  title: "Algorithm · Hestia",
-  description: "The seven steps Hestia uses to find villages and plan one route from the nearest clinic that reaches them all.",
-};
+export function generateMetadata() {
+  return pageMetadata("meta.algorithmTitle").then((metadata) => ({
+    ...metadata,
+    description:
+      "The seven steps Hestia uses to find villages and plan one route from the nearest clinic that reaches them all.",
+  }));
+}
 
 function readAlgorithmSource() {
   try {

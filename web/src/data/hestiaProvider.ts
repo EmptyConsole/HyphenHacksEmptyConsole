@@ -403,8 +403,12 @@ export const hestiaProvider: MapDataProvider = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
     });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error ?? `scan failed (${response.status})`);
+    const body = (await response.json().catch(() => ({}))) as {
+      code?: string;
+      error?: string;
+      scan?: ScanMeta;
+    };
+    if (!response.ok) throw new Error(body.code ?? body.error ?? `scan failed (${response.status})`);
     await this.refresh();
     return body.scan as ScanMeta;
   },

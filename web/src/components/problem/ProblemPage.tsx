@@ -1,5 +1,8 @@
+"use client";
+
 import type { CSSProperties, ReactNode } from "react";
-import { problemContent, sources, type SourceId } from "@/content/problem";
+import { useLocale } from "@/i18n/LocaleProvider";
+import { problemFigures, sources, type SourceId } from "@/content/problem";
 import MapGap from "./MapGap";
 import Reveal from "./Reveal";
 import RouteChoice from "./RouteChoice";
@@ -8,9 +11,10 @@ import styles from "./ProblemPage.module.css";
 import diagrams from "./ProblemDiagrams.module.css";
 
 function Cite({ id }: { id: SourceId }) {
+  const { t } = useLocale();
   const n = sources.findIndex((s) => s.id === id) + 1;
   return (
-    <a className={styles.cite} href={`#source-${n}`} aria-label={`Source ${n}`}>
+    <a className={styles.cite} href={`#source-${n}`} aria-label={t("common.sourceN", { n })}>
       [{n}]
     </a>
   );
@@ -40,7 +44,9 @@ function Section({
           {body.map((p) => (
             <p key={p.text} className={styles.body}>
               {p.text}
-              {p.cite?.map((id) => <Cite key={id} id={id} />)}
+              {p.cite?.map((id) => (
+                <Cite key={id} id={id} />
+              ))}
             </p>
           ))}
         </header>
@@ -67,36 +73,42 @@ function Chain({ caption, steps }: { caption: string; steps: { title: string; te
 }
 
 export default function ProblemPage() {
-  const { /* stats, */ location, routes, funding } = problemContent;
+  const { t } = useLocale();
+  const location = {
+    eyebrow: t("problem.locationEyebrow"),
+    title: t("problem.locationTitle"),
+    body: [
+      { text: t("problem.locationBody1") },
+      { text: t("problem.locationBody2"), cite: ["nature" as const] },
+    ],
+  };
+  const routes = {
+    eyebrow: t("problem.routesEyebrow"),
+    title: t("problem.routesTitle"),
+    body: [
+      { text: t("problem.routesBody1") },
+      { text: t("problem.routesBody2") },
+      { text: t("problem.routesBody3") },
+    ],
+  };
+  const funding = {
+    eyebrow: t("problem.fundingEyebrow"),
+    title: t("problem.fundingTitle"),
+    body: [{ text: t("problem.fundingBody1") }, { text: t("problem.fundingBody2") }],
+  };
+
   return (
     <main className={styles.page}>
       <header className={`container ${styles.hero}`}>
-        <p className="eyebrow">{problemContent.eyebrow}</p>
-        <h1 className={styles.title}>{problemContent.title}</h1>
-        <p className={styles.subtitle}>{problemContent.subtitle}</p>
+        <p className="eyebrow">{t("problem.eyebrow")}</p>
+        <h1 className={styles.title}>{t("problem.title")}</h1>
+        <p className={styles.subtitle}>{t("problem.subtitle")}</p>
       </header>
-
-      {/*
-      <div className="container">
-        <ul className={styles.stats}>
-          {stats.map((s) => (
-            <li key={s.value} className={styles.stat}>
-              <span className={styles.statValue}>{s.value}</span>
-              <span className={styles.statLabel}>
-                {s.label}
-                <Cite id={s.source} />
-              </span>
-              {s.note && <span className={styles.statNote}>{s.note}</span>}
-            </li>
-          ))}
-        </ul>
-      </div>
-      */}
 
       <Section {...location}>
         <Reveal className={styles.card}>
           <figure>
-            <figcaption className={styles.caption}>{location.mapCaption}</figcaption>
+            <figcaption className={styles.caption}>{t("problem.mapCaption")}</figcaption>
             <MapGap />
           </figure>
         </Reveal>
@@ -104,11 +116,11 @@ export default function ProblemPage() {
         <Reveal className={styles.card}>
           <figure>
             <figcaption className={styles.caption}>
-              {location.undercountCaption}
+              {t("problem.undercountCaption")}
               <Cite id="nature" />
             </figcaption>
             <ul className={styles.bars}>
-              {location.undercount.map((u) => (
+              {problemFigures.undercount.map((u) => (
                 <li key={u.label} className={styles.barRow}>
                   <span className={styles.barLabel}>{u.label}</span>
                   <span className={styles.track}>
@@ -126,27 +138,59 @@ export default function ProblemPage() {
         <Reveal className={styles.card}>
           <figure>
             <figcaption className={styles.caption}>
-              {routes.travelCaption}
+              {t("problem.travelCaption")}
               <Cite id="weiss" />
             </figcaption>
-            <TravelWaffle {...routes.travel} labels={routes.travelKey} />
+            <TravelWaffle
+              {...problemFigures.travel}
+              labels={{
+                byCar: t("problem.byCar"),
+                onFoot: t("problem.onFoot"),
+                near: t("problem.near"),
+              }}
+            />
           </figure>
         </Reveal>
 
         <figure className={styles.card}>
-          <figcaption className={styles.caption}>{routes.routeCaption}</figcaption>
-          <RouteChoice {...routes.route} />
+          <figcaption className={styles.caption}>{t("problem.routeCaption")}</figcaption>
+          <RouteChoice
+            shortest={{
+              label: t("problem.shortest"),
+              road: t("problem.dirtTrack"),
+              km: problemFigures.route.shortest.km,
+              rate: problemFigures.route.shortest.rate,
+            }}
+            cheapest={{
+              label: t("problem.cheapest"),
+              road: t("problem.pavedRoad"),
+              km: problemFigures.route.cheapest.km,
+              rate: problemFigures.route.cheapest.rate,
+            }}
+          />
         </figure>
       </Section>
 
       <Section {...funding}>
-        <Chain caption={funding.chainCaption} steps={funding.chain} />
-        <Chain caption={funding.costChainCaption} steps={funding.costChain} />
+        <Chain
+          caption={t("problem.chainCaption")}
+          steps={[1, 2, 3, 4].map((n) => ({
+            title: t(`problem.chain${n}Title`),
+            text: t(`problem.chain${n}Text`),
+          }))}
+        />
+        <Chain
+          caption={t("problem.costChainCaption")}
+          steps={[1, 2, 3, 4].map((n) => ({
+            title: t(`problem.cost${n}Title`),
+            text: t(`problem.cost${n}Text`),
+          }))}
+        />
       </Section>
 
       <section id="sources" className={styles.sources}>
         <div className="container">
-          <p className="eyebrow">Sources</p>
+          <p className="eyebrow">{t("common.sources")}</p>
           <ol className={styles.sourceList}>
             {sources.map((s, i) => (
               <li key={s.id} id={`source-${i + 1}`}>

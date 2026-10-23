@@ -5,6 +5,8 @@ import HelpScanPrompt from "@/components/help/HelpScanPrompt";
 import { donateContent } from "@/content/donate";
 import { dataProvider } from "@/data";
 import ruralPopulation from "@/data/ruralPopulation.json";
+import { useLocale } from "@/i18n/LocaleProvider";
+import { localizedCountryName } from "@/i18n/place";
 import { formatCount, formatDollars } from "@/lib/format";
 import styles from "./DonateView.module.css";
 
@@ -26,6 +28,7 @@ function governmentKey(government: Government) {
 }
 
 export default function DonateView() {
+  const { t, locale } = useLocale();
   const selectId = useId();
   const searchId = useId();
   const [governments, setGovernments] = useState<Government[]>([]);
@@ -94,8 +97,13 @@ export default function DonateView() {
     const needle = query.trim().toLowerCase();
     const rows = [...governments].sort((a, b) => b.rural - a.rural);
     if (!needle) return rows;
-    return rows.filter((government) => government.name.toLowerCase().includes(needle));
-  }, [governments, query]);
+    return rows.filter((government) => {
+      const local = localizedCountryName(government.id, government.name, locale).toLowerCase();
+      return government.name.toLowerCase().includes(needle) || local.includes(needle);
+    });
+  }, [governments, locale, query]);
+
+  const countryName = (government: Government) => localizedCountryName(government.id, government.name, locale);
 
   function choose(value: string) {
     setChoice(value);
@@ -114,22 +122,22 @@ export default function DonateView() {
   return (
     <main className={styles.page}>
       <header className={styles.hero}>
-        <p className={styles.eyebrow}>{donateContent.eyebrow}</p>
-        <h1 className={styles.title}>{donateContent.title}</h1>
-        <p className={styles.subtitle}>{donateContent.lead}</p>
+        <p className={styles.eyebrow}>{t("donate.eyebrow")}</p>
+        <h1 className={styles.title}>{t("donate.title")}</h1>
+        <p className={styles.subtitle}>{t("donate.lead")}</p>
       </header>
 
       <section className={styles.section} aria-labelledby="why-it-matters">
         <div className={styles.sectionHeader}>
-          <h2 id="why-it-matters">The need</h2>
-          <p>These are the real numbers on rural people, health coverage and kids who never got a vaccine.</p>
+          <h2 id="why-it-matters">{t("donate.needTitle")}</h2>
+          <p>{t("donate.needLead")}</p>
         </div>
         <div className={styles.facts}>
-          {donateContent.facts.map((fact) => (
-            <article key={fact.value} className={styles.card}>
-              <strong className={styles.stat}>{fact.value}</strong>
-              <p>{fact.label}</p>
-              <p className={styles.note}>{fact.note}</p>
+          {[1, 2, 3, 4].map((n) => (
+            <article key={n} className={styles.card}>
+              <strong className={styles.stat}>{t(`donate.fact${n}Value`)}</strong>
+              <p>{t(`donate.fact${n}Label`)}</p>
+              <p className={styles.note}>{t(`donate.fact${n}Note`)}</p>
             </article>
           ))}
         </div>
@@ -137,13 +145,13 @@ export default function DonateView() {
 
       <section className={styles.section} aria-labelledby="why-donate">
         <div className={styles.sectionHeader}>
-          <h2 id="why-donate">{donateContent.whyTitle}</h2>
+          <h2 id="why-donate">{t("donate.whyTitle")}</h2>
         </div>
         <div className={styles.grid}>
-          {donateContent.why.map((reason) => (
-            <article key={reason.title} className={styles.card}>
-              <h3>{reason.title}</h3>
-              <p>{reason.text}</p>
+          {[1, 2, 3].map((n) => (
+            <article key={n} className={styles.card}>
+              <h3>{t(`donate.why${n}Title`)}</h3>
+              <p>{t(`donate.why${n}Text`)}</p>
             </article>
           ))}
         </div>
@@ -151,15 +159,15 @@ export default function DonateView() {
 
       <section className={styles.section} aria-labelledby="where-it-goes">
         <div className={styles.sectionHeader}>
-          <h2 id="where-it-goes">{donateContent.whereTitle}</h2>
-          <p>{donateContent.whereLead}</p>
+          <h2 id="where-it-goes">{t("donate.whereTitle")}</h2>
+          <p>{t("donate.whereLead")}</p>
         </div>
         <div className={styles.grid}>
-          {donateContent.where.map((step) => (
-            <article key={step.step} className={styles.card}>
-              <p className={styles.stepNumber}>{step.step}</p>
-              <h3>{step.title}</h3>
-              <p>{step.text}</p>
+          {[1, 2, 3].map((n) => (
+            <article key={n} className={styles.card}>
+              <p className={styles.stepNumber}>{String(n).padStart(2, "0")}</p>
+              <h3>{t(`donate.where${n}Title`)}</h3>
+              <p>{t(`donate.where${n}Text`)}</p>
             </article>
           ))}
         </div>
@@ -167,33 +175,31 @@ export default function DonateView() {
 
       <section id="choose" className={styles.section} aria-labelledby="choose-title">
         <div className={styles.sectionHeader}>
-          <h2 id="choose-title">Choose a government</h2>
-          <p>
-            In these 25 countries a lot of rural people still can&apos;t get health care. We&apos;d go with the first one since it has the most rural people on the list.
-          </p>
+          <h2 id="choose-title">{t("donate.chooseTitle")}</h2>
+          <p>{t("donate.chooseLead")}</p>
         </div>
 
-        {status === "loading" && <p className={styles.status}>Loading governments…</p>}
+        {status === "loading" && <p className={styles.status}>{t("donate.loadingGovernments")}</p>}
         {status === "error" && (
           <p className={styles.status} role="alert">
-            World Bank rural population figures could not be loaded. Refresh the page to try again.
+            {t("donate.loadError")}
           </p>
         )}
 
         {status === "ready" && selected && (
           <div className={styles.panel}>
             <label className={styles.field} htmlFor={selectId}>
-              <span>Government</span>
+              <span>{t("donate.government")}</span>
               <select
                 id={selectId}
                 className={styles.select}
                 value={choice === RECOMMENDED ? RECOMMENDED : governmentKey(selected)}
                 onChange={(event) => choose(event.target.value)}
               >
-                <option value={RECOMMENDED}>Recommended: {recommended?.name}</option>
+                <option value={RECOMMENDED}>{t("donate.recommended", { name: recommended ? countryName(recommended) : "" })}</option>
                 {governments.map((government) => (
                   <option key={governmentKey(government)} value={governmentKey(government)}>
-                    {government.name}
+                    {countryName(government)}
                   </option>
                 ))}
               </select>
@@ -201,28 +207,32 @@ export default function DonateView() {
 
             {isRecommended && recommended && (
               <p className={styles.recommend}>
-                <strong>Recommended: {recommended.name}.</strong> The World Bank counted {formatCount(recommended.rural)} people living in rural areas there in {recommended.year}, more than any other country on this list.
+                {t("donate.recommendedNote", {
+                  name: countryName(recommended),
+                  rural: formatCount(recommended.rural, locale),
+                  year: recommended.year,
+                })}
               </p>
             )}
 
             <dl className={styles.summary}>
               <div>
-                <dt>Rural people</dt>
-                <dd>{formatCount(selected.rural)}</dd>
+                <dt>{t("donate.ruralPeople")}</dt>
+                <dd>{formatCount(selected.rural, locale)}</dd>
               </div>
               <div>
-                <dt>Year</dt>
+                <dt>{t("donate.year")}</dt>
                 <dd>{selected.year}</dd>
               </div>
               <div>
-                <dt>Source</dt>
-                <dd>World Bank, SP.RUR.TOTL</dd>
+                <dt>{t("donate.source")}</dt>
+                <dd>{t("donate.worldBankSeries")}</dd>
               </div>
             </dl>
 
             <div className={styles.amounts}>
               <p className={styles.amountLabel} id="amount-label">
-                Gift amount
+                {t("donate.giftAmount")}
               </p>
               <div className={styles.amountRow} role="group" aria-labelledby="amount-label">
                 {donateContent.amounts.map((value) => (
@@ -236,17 +246,17 @@ export default function DonateView() {
                       setCustom("");
                     }}
                   >
-                    {formatDollars(value)}
+                    {formatDollars(value, locale)}
                   </button>
                 ))}
                 <label className={styles.custom} data-active={usingCustom || undefined}>
-                  Custom
+                  {t("donate.custom")}
                   <input
                     type="text"
                     inputMode="numeric"
                     value={custom}
-                    placeholder="Amount"
-                    aria-label="Custom gift amount in dollars"
+                    placeholder={t("donate.amountPlaceholder")}
+                    aria-label={t("donate.customAmount")}
                     onChange={(event) => setCustom(event.target.value.replace(/[^\d]/g, ""))}
                   />
                 </label>
@@ -254,78 +264,84 @@ export default function DonateView() {
             </div>
 
             <section className={styles.impact} aria-live="polite" aria-labelledby="impact-title">
-              <h3 id="impact-title">Impact</h3>
+              <h3 id="impact-title">{t("donate.impact")}</h3>
               <p>
                 {amountReady
-                  ? `${formatDollars(amount)} would go to ${selected.name}, where ${formatCount(selected.rural)} people live in rural areas (World Bank, ${selected.year}).`
-                  : "Enter a gift of at least $1."}
+                  ? t("donate.impactReady", {
+                      amount: formatDollars(amount, locale),
+                      name: countryName(selected),
+                      rural: formatCount(selected.rural, locale),
+                      year: selected.year,
+                    })
+                  : t("donate.impactMinimum")}
               </p>
               <p>
-                In 2025, 13.5 million babies around the world didn&apos;t get a single vaccine in their first year (WHO and UNICEF). Your gift helps us find villages in {selected.name} that the official maps missed and get vaccines out to them from the closest clinic.
+                {t("donate.impactContext", { name: countryName(selected) })}
               </p>
             </section>
 
             <button type="button" className={`btn btn-primary ${styles.pay}`} onClick={openPay} disabled={!amountReady}>
-              Pay
+              {t("donate.pay")}
             </button>
 
             <dialog ref={payDialog} className={styles.popup} aria-labelledby="pay-title">
               <div className={styles.popupHead}>
-                <h3 id="pay-title">Pay</h3>
-                <button type="button" className={styles.close} onClick={() => payDialog.current?.close()} aria-label="Close">
+                <h3 id="pay-title">{t("donate.pay")}</h3>
+                <button type="button" className={styles.close} onClick={() => payDialog.current?.close()} aria-label={t("common.close")}>
                   ×
                 </button>
               </div>
               <p>
-                {formatDollars(amountReady ? amount : 0)} would go to {selected.name}, where {formatCount(selected.rural)} people live in rural areas (World Bank, {selected.year}). We&apos;d use it to find villages the maps missed and get vaccines to them from the nearest clinic.
+                {t("donate.payBody", {
+                  amount: formatDollars(amountReady ? amount : 0, locale),
+                  name: countryName(selected),
+                  rural: formatCount(selected.rural, locale),
+                  year: selected.year,
+                })}
               </p>
-              <p className={styles.fine}>This is just a placeholder for now, it won&apos;t charge your card.</p>
+              <p className={styles.fine}>{t("donate.payFine")}</p>
             </dialog>
           </div>
         )}
-        <HelpScanPrompt message={donateContent.scanChoose} />
+        <HelpScanPrompt message={t("donate.scanChoose")} />
       </section>
 
       <section className={styles.section} aria-labelledby="all-governments">
         <div className={styles.tableHead}>
           <div className={styles.sectionHeader}>
-            <h2 id="all-governments">Governments in need</h2>
-            <p>
-              &ldquo;Rural people&rdquo; means how many people lived in rural areas in each country in 2025, going by the World Bank.
-            </p>
+            <h2 id="all-governments">{t("donate.governmentsTitle")}</h2>
+            <p>{t("donate.governmentsLead")}</p>
           </div>
           <label className={styles.field} htmlFor={searchId}>
-            <span>Find a government</span>
+            <span>{t("donate.findGovernment")}</span>
             <input
               id={searchId}
               className={styles.search}
               type="search"
               value={query}
-              placeholder="Search by name"
+              placeholder={t("donate.searchPlaceholder")}
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
         </div>
 
-        {status === "loading" && <p className={styles.status}>Loading governments…</p>}
-        {status === "error" && (
-          <p className={styles.status}>Figures will appear here once the World Bank counts load.</p>
-        )}
+        {status === "loading" && <p className={styles.status}>{t("donate.loadingGovernments")}</p>}
+        {status === "error" && <p className={styles.status}>{t("donate.figuresPending")}</p>}
         {status === "ready" && (
           <div className={styles.tableWrap}>
             <table>
               <thead>
                 <tr>
-                  <th scope="col">Government</th>
-                  <th scope="col" className={styles.num}>Rural people</th>
-                  <th scope="col" className={styles.num}>Year</th>
+                  <th scope="col">{t("donate.government")}</th>
+                  <th scope="col" className={styles.num}>{t("donate.ruralPeople")}</th>
+                  <th scope="col" className={styles.num}>{t("donate.year")}</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={3} className={styles.empty}>
-                      No government matches that name.
+                      {t("donate.noMatch")}
                     </td>
                   </tr>
                 ) : (
@@ -336,10 +352,10 @@ export default function DonateView() {
                     >
                       <td>
                         <button type="button" className={styles.nameBtn} onClick={() => chooseFromTable(government)}>
-                          {government.name}
+                          {countryName(government)}
                         </button>
                       </td>
-                      <td className={styles.num}>{formatCount(government.rural)}</td>
+                      <td className={styles.num}>{formatCount(government.rural, locale)}</td>
                       <td className={styles.num}>{government.year}</td>
                     </tr>
                   ))
@@ -352,7 +368,7 @@ export default function DonateView() {
 
       <section className={styles.section} aria-labelledby="sources-title">
         <div className={styles.sectionHeader}>
-          <h2 id="sources-title">Sources</h2>
+          <h2 id="sources-title">{t("common.sources")}</h2>
         </div>
         <ul className={styles.sourceList}>
           {donateContent.sources.map((source) => (

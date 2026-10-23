@@ -173,8 +173,8 @@
   grid-template-columns: 2.5rem 1fr;
   align-items: baseline;
   gap: var(--space-3);
-  padding-left: var(--space-3);
-  border-left: 3px solid;
+  padding-inline-start: var(--space-3);
+  border-inline-start: 3px solid;
   font-size: var(--text-small);
   color: var(--color-text-secondary);
 }

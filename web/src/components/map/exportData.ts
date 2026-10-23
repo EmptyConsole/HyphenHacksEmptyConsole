@@ -36,7 +36,9 @@ const LEAD_COLUMNS = [
   "estimated_cost",
 ] as const;
 
-const SINGULAR: Record<string, string> = {
+type ExportT = (key: string, vars?: Record<string, string | number>) => string;
+
+const NOUN_KEY: Record<string, string> = {
   countries: "country",
   scans: "scan",
   settlements: "settlement",
@@ -102,23 +104,22 @@ function contents(view: ExportView) {
 }
 
 /** Short description of what a download holds, for the panel. */
-export function describeExport(view: ExportView): string {
+export function describeExport(view: ExportView, t: ExportT): string {
   const { areas, routes, clinics, tour } = contents(view);
   if (view.selected) {
-    const parts = ["Outline"];
-    if (routes.length) parts.push("route");
-    if (clinics.length) parts.push("clinic");
-    return `${parts.join(", ")} and costs`;
+    const parts = [t("map.exportOutline")];
+    if (routes.length) parts.push(t("map.exportRoute"));
+    if (clinics.length) parts.push(t("map.exportClinic"));
+    return t("map.exportSelected", { parts: parts.join(", ") });
   }
-  if (exportsParent(view)) return "Outline and estimate, no scans yet";
-  const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+  if (exportsParent(view)) return t("map.exportParent");
   const label = view.summary.countLabel;
-  const parts = [areas.length === 1 ? count(1, SINGULAR[label] ?? label) : `${areas.length} ${label}`];
+  const parts = [t(`map.noun.${NOUN_KEY[label] ?? "settlement"}`, { count: areas.length })];
   const scans = view.level < 2 ? scansInView(view).length : 0;
-  if (scans && view.summary.countLabel !== "scans") parts.push(count(scans, "scan"));
-  if (routes.length) parts.push(count(routes.length, "route"));
-  if (clinics.length) parts.push(count(clinics.length, "clinic"));
-  if (tour) parts.push("team tour");
+  if (scans && view.summary.countLabel !== "scans") parts.push(t("map.noun.scan", { count: scans }));
+  if (routes.length) parts.push(t("map.noun.route", { count: routes.length }));
+  if (clinics.length) parts.push(t("map.noun.clinic", { count: clinics.length }));
+  if (tour) parts.push(t("map.exportTour"));
   return parts.join(" · ");
 }
 

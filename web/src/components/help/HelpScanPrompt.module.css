@@ -14,7 +14,7 @@
   margin: 0;
   font-size: var(--text-small);
   line-height: 1.4;
-  text-align: left;
+  text-align: start;
   color: var(--color-text);
 }
 

@@ -179,8 +179,8 @@
   flex-direction: column;
   flex-basis: 0;
   min-width: 0;
-  padding-left: var(--space-3);
-  border-left: 2px solid;
+  padding-inline-start: var(--space-3);
+  border-inline-start: 2px solid;
 }
 
 .stackLabel {

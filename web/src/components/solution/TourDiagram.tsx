@@ -1,3 +1,6 @@
+"use client";
+
+import { useLocale } from "@/i18n/LocaleProvider";
 import styles from "./SolutionPage.module.css";
 
 /**
@@ -14,13 +17,14 @@ const HOUSE_OFFSETS = [[-9, -6], [3, -8], [-4, 4]];
 const d = (order: number[]) => order.map((k, i) => `${i ? "L" : "M"}${POINTS[k][0]},${POINTS[k][1]}`).join("");
 
 export default function TourDiagram() {
+  const { t } = useLocale();
   const [cx, cy] = POINTS[0];
   return (
     <svg
       className={styles.route}
       viewBox="0 0 560 320"
       role="img"
-      aria-label="One team leaves the clinic, visits six villages and returns. The faint loop visits the cheapest next village each time and crosses itself; the bright loop is the same villages in a cheaper order."
+      aria-label={t("diagrams.tourLabel")}
     >
       <path className={styles.ghost} d={d(GREEDY)} />
       <path className={`${styles.leg} ${styles.legRoad}`} d={d(IMPROVED)} />
@@ -35,7 +39,7 @@ export default function TourDiagram() {
         <circle cx={cx} cy={cy} r={13} />
         <path d={`M${cx - 6} ${cy}h12M${cx} ${cy - 6}v12`} />
         <text x={cx - 13} y={cy - 22}>
-          Clinic · start and end
+          {t("diagrams.clinicStartEnd")}
         </text>
       </g>
     </svg>

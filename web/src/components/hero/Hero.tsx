@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { homeContent } from "@/content/home";
+import { useLocale } from "@/i18n/LocaleProvider";
 import HeroGlobeLoader from "./HeroGlobeLoader";
 import styles from "./Hero.module.css";
 
@@ -20,7 +20,8 @@ function scrollMapIntoCenter(event: React.MouseEvent<HTMLAnchorElement>) {
 }
 
 export default function Hero() {
-  const { hero } = homeContent;
+  const { t } = useLocale();
+  const lines = [t("home.line1"), t("home.line2"), t("home.line3")];
 
   return (
     <section className={styles.hero}>
@@ -30,35 +31,26 @@ export default function Hero() {
       <div className={styles.fade} aria-hidden="true" />
 
       <div className={`container ${styles.content}`}>
-        <p className="eyebrow">{hero.eyebrow}</p>
+        <p className="eyebrow">{t("home.eyebrow")}</p>
         <h1 className={styles.headline}>
-          {hero.headlineLines.map((line, index) => {
-            const isLast = index === hero.headlineLines.length - 1;
+          {lines.map((line, index) => {
+            const isLast = index === lines.length - 1;
             return (
-              <span key={line}>
+              <span key={index}>
                 {index > 0 && <br />}
-                {isLast ? (
-                  <span className={styles.accent}>{line}</span>
-                ) : (
-                  line
-                )}
+                {isLast ? <span className={styles.accent}>{line}</span> : line}
               </span>
             );
           })}
         </h1>
-        <p className={styles.lead}>{hero.lead}</p>
+        <p className={styles.lead}>{t("home.lead")}</p>
         <div className={styles.ctas}>
-          {hero.ctas.map((cta) => (
-            <Link
-              key={cta.href}
-              href={cta.href}
-              scroll={cta.href === "#map" ? false : undefined}
-              onClick={cta.href === "#map" ? scrollMapIntoCenter : undefined}
-              className={`btn btn-${cta.variant}`}
-            >
-              {cta.label}
-            </Link>
-          ))}
+          <Link href="#map" scroll={false} onClick={scrollMapIntoCenter} className="btn btn-primary">
+            {t("home.ctaMap")}
+          </Link>
+          <Link href="/algorithm" className="btn btn-secondary">
+            {t("home.ctaAlgorithm")}
+          </Link>
         </div>
       </div>
     </section>
